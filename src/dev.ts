@@ -12,7 +12,7 @@ await build({
   platform: "node",
   format: "esm",
   outfile,
-  // Keep runtime dependencies as Node ESM imports. Pi includes optional and
+  // Keep runtime dependencies as Node ESM imports. The embedded harness includes optional and
   // native-adjacent resources that must be resolved from node_modules rather
   // than folded into this small development entry point.
   packages: "external",

@@ -8,29 +8,29 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react-ink";
 import { Thread } from "./components/thread.js";
-import { PiSetup } from "./components/pi-setup.js";
-import { createPiAdapter } from "./pi-adapter.js";
+import { TiaSetup } from "./components/tia-setup.js";
+import { createTiaAdapter } from "./tia-adapter.js";
 import {
-  getProviderOption,
-  loadPiConfiguration,
-  type PiConfiguration,
-} from "./pi-configuration.js";
-import type { PiSessionExitSummary } from "./session-exit.js";
+  getTiaProviderOption,
+  loadTiaConfiguration,
+  type TiaConfiguration,
+} from "./tia-configuration.js";
+import type { TiaSessionExitSummary } from "./tia-session-exit.js";
 
-type PiAdapter = ReturnType<typeof createPiAdapter>;
+type TiaAdapter = ReturnType<typeof createTiaAdapter>;
 
 type PreparedRuntime = {
-  adapter: PiAdapter;
+  adapter: TiaAdapter;
   initialMessages: readonly ThreadMessageLike[];
 };
 
 type InitializationError = {
-  adapter: PiAdapter;
+  adapter: TiaAdapter;
   message: string;
 };
 
 export type TiaCodeExitResult = {
-  session?: PiSessionExitSummary;
+  session?: TiaSessionExitSummary;
   error?: string;
 };
 
@@ -51,7 +51,7 @@ const ConfigurationLoading = () => (
     <Text bold color="cyan">
       TIA Code
     </Text>
-    <Text dimColor>Loading your Pi configuration…</Text>
+    <Text dimColor>Loading your TIA configuration…</Text>
   </Box>
 );
 
@@ -60,14 +60,14 @@ const SessionLoading = () => (
     <Text bold color="cyan">
       TIA Code
     </Text>
-    <Text dimColor>Opening your Pi session…</Text>
+    <Text dimColor>Opening your TIA session…</Text>
   </Box>
 );
 
 const SessionError = ({ message }: { message: string }) => (
   <Box flexDirection="column" padding={1}>
     <Text bold color="red">
-      TIA Code could not open this Pi session
+      TIA Code could not open this session
     </Text>
     <Text>{message}</Text>
     <Text dimColor>Press Ctrl+C to exit.</Text>
@@ -82,7 +82,7 @@ const ExitOnCtrlC = () => {
   return null;
 };
 
-const SessionExitOnCtrlC = ({ adapter }: { adapter: PiAdapter }) => {
+const SessionExitOnCtrlC = ({ adapter }: { adapter: TiaAdapter }) => {
   const { exit } = useApp();
   const [isExiting, setIsExiting] = useState(false);
   useInput((input, key) => {
@@ -110,7 +110,7 @@ const Conversation = ({ modelName }: { modelName: string }) => {
             <Text bold color="cyan">
               TIA Code
             </Text>
-            <Text dimColor> · Pi coding harness</Text>
+            <Text dimColor> · local coding agent</Text>
           </Text>
           <StatusBar modelName={modelName} />
         </Box>
@@ -118,7 +118,7 @@ const Conversation = ({ modelName }: { modelName: string }) => {
       <Thread modelName={modelName} directory={process.cwd()} />
       <Text dimColor>
         {hasMessages
-          ? "Ctrl+O to change the Pi provider or model · Ctrl+C to exit."
+          ? "Ctrl+O to change the TIA provider or model · Ctrl+C to exit."
           : "Ctrl+C to exit."}
       </Text>
     </Box>
@@ -131,7 +131,7 @@ const ActiveConfiguredApp = ({
   modelName,
   onConfigure,
 }: {
-  adapter: PiAdapter;
+  adapter: TiaAdapter;
   initialMessages: readonly ThreadMessageLike[];
   modelName: string;
   onConfigure: () => void;
@@ -170,14 +170,14 @@ const ConfiguredApp = ({
   onConfigure,
   resumeSessionId,
 }: {
-  configuration: PiConfiguration;
+  configuration: TiaConfiguration;
   onConfigure: () => void;
   resumeSessionId?: string;
 }) => {
-  const provider = getProviderOption(configuration.providerId);
+  const provider = getTiaProviderOption(configuration.providerId);
   const modelName = `${provider.label} · ${configuration.modelId}`;
   const adapter = useMemo(
-    () => createPiAdapter(configuration, process.cwd(), { resumeSessionId }),
+    () => createTiaAdapter(configuration, process.cwd(), { resumeSessionId }),
     [configuration, resumeSessionId],
   );
   const [prepared, setPrepared] = useState<PreparedRuntime | undefined>(undefined);
@@ -235,12 +235,12 @@ const ConfiguredApp = ({
 };
 
 export const App = ({ resumeSessionId }: { resumeSessionId?: string }) => {
-  const [configuration, setConfiguration] = useState<PiConfiguration | null | undefined>(undefined);
+  const [configuration, setConfiguration] = useState<TiaConfiguration | null | undefined>(undefined);
   const [showSetup, setShowSetup] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    void loadPiConfiguration().then((loaded) => {
+    void loadTiaConfiguration().then((loaded) => {
       if (mounted) setConfiguration(loaded);
     });
     return () => {
@@ -261,7 +261,7 @@ export const App = ({ resumeSessionId }: { resumeSessionId?: string }) => {
     return (
       <>
         <ExitOnCtrlC />
-        <PiSetup
+        <TiaSetup
           initialConfiguration={configuration ?? undefined}
           onComplete={(nextConfiguration) => {
             setConfiguration(nextConfiguration);

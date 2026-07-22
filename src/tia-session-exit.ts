@@ -1,6 +1,6 @@
 import type { SessionStats } from "@earendil-works/pi-coding-agent";
 
-export type PiSessionExitSummary = {
+export type TiaSessionExitSummary = {
   stats: SessionStats;
   reasoningTokens?: number;
   resumeSessionId?: string;
@@ -8,8 +8,8 @@ export type PiSessionExitSummary = {
 
 const formatTokens = (value: number): string => value.toLocaleString("en-US");
 
-export const formatPiSessionExitSummary = (
-  summary: PiSessionExitSummary | undefined,
+export const formatTiaSessionExitSummary = (
+  summary: TiaSessionExitSummary | undefined,
 ): string | undefined => {
   if (!summary || summary.stats.assistantMessages === 0) return undefined;
 

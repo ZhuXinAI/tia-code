@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import {
-  PI_PROVIDER_OPTIONS,
-  savePiConfiguration,
-  type PiConfiguration,
-  type PiProviderOption,
-} from "../pi-configuration.js";
+  TIA_PROVIDER_OPTIONS,
+  saveTiaConfiguration,
+  type TiaConfiguration,
+  type TiaProviderOption,
+} from "../tia-configuration.js";
 
 type SetupStep = "provider" | "api-key" | "model" | "custom-model";
 
-type PiSetupProps = {
-  initialConfiguration?: PiConfiguration;
-  onComplete: (configuration: PiConfiguration) => void;
+type TiaSetupProps = {
+  initialConfiguration?: TiaConfiguration;
+  onComplete: (configuration: TiaConfiguration) => void;
   onCancel?: () => void;
 };
 
@@ -20,8 +20,8 @@ const customModelOption = "Custom model ID";
 const selectedMarker = (selected: boolean): string => (selected ? "›" : " ");
 
 const modelSelectionFor = (
-  provider: PiProviderOption,
-  configuration?: PiConfiguration,
+  provider: TiaProviderOption,
+  configuration?: TiaConfiguration,
 ): { modelIndex: number; customModel: string } => {
   const configuredModel = configuration?.providerId === provider.id ? configuration.modelId : "";
   if (!configuredModel) return { modelIndex: 0, customModel: "" };
@@ -34,12 +34,12 @@ const modelSelectionFor = (
 
 const maskedKey = (value: string): string => (value ? "••••••••" : "");
 
-export const PiSetup = ({ initialConfiguration, onComplete, onCancel }: PiSetupProps) => {
+export const TiaSetup = ({ initialConfiguration, onComplete, onCancel }: TiaSetupProps) => {
   const initialProviderIndex = Math.max(
     0,
-    PI_PROVIDER_OPTIONS.findIndex((provider) => provider.id === initialConfiguration?.providerId),
+    TIA_PROVIDER_OPTIONS.findIndex((provider) => provider.id === initialConfiguration?.providerId),
   );
-  const initialProvider = PI_PROVIDER_OPTIONS[initialProviderIndex]!;
+  const initialProvider = TIA_PROVIDER_OPTIONS[initialProviderIndex]!;
   const initialModelSelection = modelSelectionFor(initialProvider, initialConfiguration);
   const [step, setStep] = useState<SetupStep>("provider");
   const [providerIndex, setProviderIndex] = useState(initialProviderIndex);
@@ -48,7 +48,7 @@ export const PiSetup = ({ initialConfiguration, onComplete, onCancel }: PiSetupP
   const [customModel, setCustomModel] = useState(initialModelSelection.customModel);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
-  const provider = PI_PROVIDER_OPTIONS[providerIndex]!;
+  const provider = TIA_PROVIDER_OPTIONS[providerIndex]!;
   const canReuseSavedKey = initialConfiguration?.providerId === provider.id && !!initialConfiguration.apiKey;
   const modelOptions = [...provider.models, customModelOption];
 
@@ -79,7 +79,7 @@ export const PiSetup = ({ initialConfiguration, onComplete, onCancel }: PiSetupP
       return;
     }
 
-    const configuration: PiConfiguration = {
+    const configuration: TiaConfiguration = {
       version: 1,
       providerId: provider.id,
       modelId: modelId.trim(),
@@ -87,9 +87,9 @@ export const PiSetup = ({ initialConfiguration, onComplete, onCancel }: PiSetupP
     };
     setError(undefined);
     setSaving(true);
-    void savePiConfiguration(configuration).then(onComplete, (cause: unknown) => {
+    void saveTiaConfiguration(configuration).then(onComplete, (cause: unknown) => {
       setSaving(false);
-      setError(cause instanceof Error ? cause.message : "Could not save the Pi configuration.");
+      setError(cause instanceof Error ? cause.message : "Could not save the TIA configuration.");
     });
   };
 
@@ -99,10 +99,10 @@ export const PiSetup = ({ initialConfiguration, onComplete, onCancel }: PiSetupP
     if (step === "provider") {
       if (key.upArrow) {
         setProviderIndex((current) =>
-          current === 0 ? PI_PROVIDER_OPTIONS.length - 1 : current - 1,
+          current === 0 ? TIA_PROVIDER_OPTIONS.length - 1 : current - 1,
         );
       } else if (key.downArrow) {
-        setProviderIndex((current) => (current + 1) % PI_PROVIDER_OPTIONS.length);
+        setProviderIndex((current) => (current + 1) % TIA_PROVIDER_OPTIONS.length);
       } else if (key.return) {
         goToApiKey();
       } else if (key.escape) {
@@ -165,7 +165,7 @@ export const PiSetup = ({ initialConfiguration, onComplete, onCancel }: PiSetupP
     }
   });
 
-  const heading = initialConfiguration ? "Update Pi model" : "Set up Pi";
+  const heading = initialConfiguration ? "Update TIA model" : "Set up TIA";
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -174,7 +174,7 @@ export const PiSetup = ({ initialConfiguration, onComplete, onCancel }: PiSetupP
       </Text>
       <Text bold>{heading}</Text>
       <Text dimColor>
-        Pi runs locally in this workspace. Your API key is stored only in TIA Code’s local config.
+        TIA runs locally in this workspace. Your API key is stored only in TIA Code’s local config.
       </Text>
 
       {saving ? (
@@ -186,7 +186,7 @@ export const PiSetup = ({ initialConfiguration, onComplete, onCancel }: PiSetupP
       {!saving && step === "provider" ? (
         <Box flexDirection="column" marginTop={1}>
           <Text color="cyan">1/3 · Choose a provider</Text>
-          {PI_PROVIDER_OPTIONS.map((option, index) => (
+          {TIA_PROVIDER_OPTIONS.map((option, index) => (
             <Text key={option.id} color={index === providerIndex ? "cyan" : undefined}>
               {selectedMarker(index === providerIndex)} {option.label}
             </Text>

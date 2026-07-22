@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -6,27 +7,29 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 const CONFIG_VERSION = 1;
 const CONFIG_PATH_ENV = "TIA_CODE_CONFIG_PATH";
 const RUNTIME_KEY_REFERENCE = "$TIA_CODE_API_KEY";
+const TIA_AGENT_DIRECTORY = "tia";
+const LEGACY_HARNESS_AGENT_DIRECTORY = "pi";
 
-type PiProviderApi = "anthropic-messages" | "openai-completions" | "openai-responses";
+type TiaProviderApi = "anthropic-messages" | "openai-completions" | "openai-responses";
 
-export type PiProviderId = "anthropic" | "openai" | "deepseek" | "kimi" | "opencode-go";
+export type TiaProviderId = "anthropic" | "openai" | "deepseek" | "kimi" | "opencode-go";
 
-export type PiProviderOption = {
-  id: PiProviderId;
+export type TiaProviderOption = {
+  id: TiaProviderId;
   label: string;
   baseUrl: string;
-  api: PiProviderApi;
+  api: TiaProviderApi;
   models: readonly string[];
 };
 
-export type PiConfiguration = {
+export type TiaConfiguration = {
   version: typeof CONFIG_VERSION;
-  providerId: PiProviderId;
+  providerId: TiaProviderId;
   modelId: string;
   apiKey: string;
 };
 
-export const PI_PROVIDER_OPTIONS: readonly PiProviderOption[] = [
+export const TIA_PROVIDER_OPTIONS: readonly TiaProviderOption[] = [
   {
     id: "anthropic",
     label: "Anthropic",
@@ -64,58 +67,79 @@ export const PI_PROVIDER_OPTIONS: readonly PiProviderOption[] = [
   },
 ];
 
-const isProviderId = (value: unknown): value is PiProviderId =>
-  typeof value === "string" && PI_PROVIDER_OPTIONS.some((provider) => provider.id === value);
+const isTiaProviderId = (value: unknown): value is TiaProviderId =>
+  typeof value === "string" && TIA_PROVIDER_OPTIONS.some((provider) => provider.id === value);
 
-export const getProviderOption = (id: PiProviderId): PiProviderOption => {
-  const provider = PI_PROVIDER_OPTIONS.find((candidate) => candidate.id === id);
-  if (!provider) throw new Error(`Unsupported Pi provider: ${id}`);
+export const getTiaProviderOption = (id: TiaProviderId): TiaProviderOption => {
+  const provider = TIA_PROVIDER_OPTIONS.find((candidate) => candidate.id === id);
+  if (!provider) throw new Error(`Unsupported TIA provider: ${id}`);
   return provider;
 };
 
-export const piConfigurationPath = (): string => {
+export const tiaConfigurationPath = (): string => {
   const override = process.env[CONFIG_PATH_ENV]?.trim();
   return override ? resolve(override) : join(homedir(), ".tia-code", "config.json");
 };
 
-export const piAgentDirectory = (): string => join(dirname(piConfigurationPath()), "pi");
+export const tiaAgentDirectory = (): string =>
+  join(dirname(tiaConfigurationPath()), TIA_AGENT_DIRECTORY);
 
-export const piSessionDirectory = (): string => join(piAgentDirectory(), "sessions");
+const legacyHarnessAgentDirectory = (): string =>
+  join(dirname(tiaConfigurationPath()), LEGACY_HARNESS_AGENT_DIRECTORY);
 
-export const ensurePiSessionDirectory = async (): Promise<string> => {
-  const directory = piSessionDirectory();
+export const ensureTiaAgentDirectory = async (): Promise<string> => {
+  const directory = tiaAgentDirectory();
+  const legacyDirectory = legacyHarnessAgentDirectory();
+  if (!existsSync(directory) && existsSync(legacyDirectory)) {
+    try {
+      await rename(legacyDirectory, directory);
+    } catch (error) {
+      if (!existsSync(directory)) throw error;
+    }
+  }
+
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700).catch(() => undefined);
   return directory;
 };
 
-const normalizeConfiguration = (input: unknown): PiConfiguration | null => {
+export const tiaSessionDirectory = (): string => join(tiaAgentDirectory(), "sessions");
+
+export const ensureTiaSessionDirectory = async (): Promise<string> => {
+  await ensureTiaAgentDirectory();
+  const directory = tiaSessionDirectory();
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await chmod(directory, 0o700).catch(() => undefined);
+  return directory;
+};
+
+const normalizeTiaConfiguration = (input: unknown): TiaConfiguration | null => {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const value = input as Record<string, unknown>;
   const apiKey = typeof value.apiKey === "string" ? value.apiKey.trim() : "";
   const modelId = typeof value.modelId === "string" ? value.modelId.trim() : "";
-  if (value.version !== CONFIG_VERSION || !isProviderId(value.providerId) || !apiKey || !modelId) {
+  if (value.version !== CONFIG_VERSION || !isTiaProviderId(value.providerId) || !apiKey || !modelId) {
     return null;
   }
   return { version: CONFIG_VERSION, providerId: value.providerId, modelId, apiKey };
 };
 
-export const loadPiConfiguration = async (
-  path = piConfigurationPath(),
-): Promise<PiConfiguration | null> => {
+export const loadTiaConfiguration = async (
+  path = tiaConfigurationPath(),
+): Promise<TiaConfiguration | null> => {
   try {
-    return normalizeConfiguration(JSON.parse(await readFile(path, "utf8")));
+    return normalizeTiaConfiguration(JSON.parse(await readFile(path, "utf8")));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     return null;
   }
 };
 
-export const savePiConfiguration = async (
-  configuration: PiConfiguration,
-  path = piConfigurationPath(),
-): Promise<PiConfiguration> => {
-  const normalized = normalizeConfiguration(configuration);
+export const saveTiaConfiguration = async (
+  configuration: TiaConfiguration,
+  path = tiaConfigurationPath(),
+): Promise<TiaConfiguration> => {
+  const normalized = normalizeTiaConfiguration(configuration);
   if (!normalized) throw new Error("A provider, model, and API key are required.");
 
   const directory = dirname(path);
@@ -129,14 +153,12 @@ export const savePiConfiguration = async (
   return normalized;
 };
 
-export const createPiModelRuntime = async (configuration: PiConfiguration) => {
-  const normalized = normalizeConfiguration(configuration);
-  if (!normalized) throw new Error("Pi has not been configured yet.");
+export const createTiaModelRuntime = async (configuration: TiaConfiguration) => {
+  const normalized = normalizeTiaConfiguration(configuration);
+  if (!normalized) throw new Error("TIA has not been configured yet.");
 
-  const provider = getProviderOption(normalized.providerId);
-  const agentDir = piAgentDirectory();
-  await mkdir(agentDir, { recursive: true, mode: 0o700 });
-  await chmod(agentDir, 0o700).catch(() => undefined);
+  const provider = getTiaProviderOption(normalized.providerId);
+  const agentDir = await ensureTiaAgentDirectory();
 
   const modelRuntime = await ModelRuntime.create({
     authPath: join(agentDir, "auth.json"),
@@ -165,7 +187,7 @@ export const createPiModelRuntime = async (configuration: PiConfiguration) => {
   await modelRuntime.setRuntimeApiKey(providerId, normalized.apiKey);
 
   const model = modelRuntime.getModel(providerId, normalized.modelId);
-  if (!model) throw new Error(`Pi could not load ${provider.label}/${normalized.modelId}.`);
+  if (!model) throw new Error(`TIA could not load ${provider.label}/${normalized.modelId}.`);
 
   return { agentDir, modelRuntime, model, providerId };
 };

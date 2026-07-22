@@ -16,18 +16,18 @@ import type {
   ThreadMessageLike,
 } from "@assistant-ui/react-ink";
 import {
-  createPiModelRuntime,
-  ensurePiSessionDirectory,
-  type PiConfiguration,
-} from "./pi-configuration.js";
-import type { PiSessionExitSummary } from "./session-exit.js";
+  createTiaModelRuntime,
+  ensureTiaSessionDirectory,
+  type TiaConfiguration,
+} from "./tia-configuration.js";
+import type { TiaSessionExitSummary } from "./tia-session-exit.js";
 
-type PiChatModelAdapter = ChatModelAdapter & {
+type TiaChatModelAdapter = ChatModelAdapter & {
   initialize(): Promise<readonly ThreadMessageLike[]>;
-  dispose(): Promise<PiSessionExitSummary | undefined>;
+  dispose(): Promise<TiaSessionExitSummary | undefined>;
 };
 
-type PiAdapterOptions = {
+type TiaAdapterOptions = {
   resumeSessionId?: string;
 };
 
@@ -83,7 +83,7 @@ class AsyncQueue<T> {
 
 type StreamState = {
   parts: ThreadAssistantMessagePart[];
-  /** Content indexes are scoped to one streamed Pi assistant message. */
+  /** Content indexes are scoped to one streamed TIA assistant message. */
   contentPartIndexes: Map<number, number>;
   toolPartIndexes: Map<string, number>;
   error?: unknown;
@@ -142,7 +142,7 @@ const appendDelta = (
   return true;
 };
 
-const applyPiEvent = (state: StreamState, event: AgentSessionEvent): boolean => {
+const applyTiaEvent = (state: StreamState, event: AgentSessionEvent): boolean => {
   switch (event.type) {
     case "message_start": {
       if (event.message.role === "assistant") state.contentPartIndexes.clear();
@@ -163,7 +163,7 @@ const applyPiEvent = (state: StreamState, event: AgentSessionEvent): boolean => 
     }
     case "message_end": {
       if (event.message.role === "assistant" && event.message.stopReason === "error") {
-        state.error = event.message.errorMessage ?? "Pi stopped with an error";
+        state.error = event.message.errorMessage ?? "TIA stopped with an error";
       }
       return false;
     }
@@ -241,7 +241,7 @@ const transcriptStatus = (stopReason: string): NonNullable<ThreadMessageLike["st
   return { type: "complete", reason: stopReason === "stop" ? "stop" : "unknown" };
 };
 
-const piContentText = (content: readonly unknown[]): string =>
+const contentText = (content: readonly unknown[]): string =>
   content
     .map((part) => {
       if (isRecord(part) && part.type === "text" && typeof part.text === "string") {
@@ -260,12 +260,12 @@ const transcriptFrom = (session: AgentSession): ThreadMessageLike[] => {
   for (const [messageIndex, message] of session.state.messages.entries()) {
     if (message.role === "user") {
       messages.push({
-        id: `pi-user-${message.timestamp}-${messageIndex}`,
+        id: `tia-user-${message.timestamp}-${messageIndex}`,
         role: "user",
         content:
           typeof message.content === "string"
             ? message.content
-            : piContentText(message.content),
+            : contentText(message.content),
         createdAt: new Date(message.timestamp),
       });
       continue;
@@ -295,7 +295,7 @@ const transcriptFrom = (session: AgentSession): ThreadMessageLike[] => {
         }
       }
       messages.push({
-        id: `pi-assistant-${message.timestamp}-${messageIndex}`,
+        id: `tia-assistant-${message.timestamp}-${messageIndex}`,
         role: "assistant",
         content,
         createdAt: new Date(message.timestamp),
@@ -307,7 +307,7 @@ const transcriptFrom = (session: AgentSession): ThreadMessageLike[] => {
     if (message.role === "toolResult") {
       const toolCall = toolCalls.get(message.toolCallId);
       if (toolCall) {
-        toolCall.result = message.details ?? piContentText(message.content);
+        toolCall.result = message.details ?? contentText(message.content);
         toolCall.isError = message.isError;
       }
     }
@@ -316,18 +316,18 @@ const transcriptFrom = (session: AgentSession): ThreadMessageLike[] => {
   return messages;
 };
 
-const createSessionManager = async (
+const createTiaSessionManager = async (
   cwd: string,
   resumeSessionId: string | undefined,
 ): Promise<SessionManager> => {
-  const sessionDirectory = await ensurePiSessionDirectory();
+  const sessionDirectory = await ensureTiaSessionDirectory();
   if (!resumeSessionId) return SessionManager.create(cwd, sessionDirectory);
 
   const session = (await SessionManager.list(cwd, sessionDirectory)).find(
     (candidate) => candidate.id === resumeSessionId,
   );
   if (!session) {
-    throw new Error(`No saved Pi session with ID "${resumeSessionId}" exists for this directory.`);
+    throw new Error(`No saved TIA session with ID "${resumeSessionId}" exists for this directory.`);
   }
   return SessionManager.open(session.path, sessionDirectory, cwd);
 };
@@ -339,27 +339,27 @@ const reasoningTokensFor = (session: AgentSession): number =>
   }, 0);
 
 /**
- * Bridges one in-process Pi SDK session to assistant-ui's local runtime.
- * Pi owns model selection, its workspace-aware resource loader, tools, and
- * conversation state; Ink only renders the translated event stream. Provider
- * credentials are injected into the ModelRuntime for this process only.
+ * Bridges TIA's embedded coding-agent harness to assistant-ui's local runtime.
+ * TIA owns the workspace resources, skills, MCP tools, and conversation state;
+ * Ink only renders the translated event stream. Provider credentials are
+ * injected into the model runtime for this process only.
  */
-export const createPiAdapter = (
-  configuration: PiConfiguration,
+export const createTiaAdapter = (
+  configuration: TiaConfiguration,
   cwd = process.cwd(),
-  options: PiAdapterOptions = {},
-): PiChatModelAdapter => {
+  options: TiaAdapterOptions = {},
+): TiaChatModelAdapter => {
   let liveSession: AgentSession | undefined;
   let opening: Promise<AgentSession> | undefined;
   let disposed = false;
-  let closing: Promise<PiSessionExitSummary | undefined> | undefined;
+  let closing: Promise<TiaSessionExitSummary | undefined> | undefined;
 
   const ensureSession = async (): Promise<AgentSession> => {
-    if (disposed) throw new Error("Pi session has been closed");
+    if (disposed) throw new Error("TIA session has been closed");
     if (liveSession) return liveSession;
     if (!opening) {
       opening = (async () => {
-        const { agentDir, modelRuntime, model } = await createPiModelRuntime(configuration);
+        const { agentDir, modelRuntime, model } = await createTiaModelRuntime(configuration);
         const settingsManager = SettingsManager.inMemory();
         const resourceLoader = new DefaultResourceLoader({
           cwd,
@@ -367,7 +367,7 @@ export const createPiAdapter = (
           settingsManager,
         });
         await resourceLoader.reload();
-        const sessionManager = await createSessionManager(cwd, options.resumeSessionId);
+        const sessionManager = await createTiaSessionManager(cwd, options.resumeSessionId);
         const { session } = await createAgentSession({
           cwd,
           agentDir,
@@ -391,7 +391,7 @@ export const createPiAdapter = (
     return transcriptFrom(session);
   };
 
-  const dispose = (): Promise<PiSessionExitSummary | undefined> => {
+  const dispose = (): Promise<TiaSessionExitSummary | undefined> => {
     if (closing) return closing;
     disposed = true;
 
@@ -442,7 +442,7 @@ export const createPiAdapter = (
       let complete = false;
 
       const unsubscribe = session.subscribe((event) => {
-        if (applyPiEvent(state, event)) queue.push(updateFor(state));
+        if (applyTiaEvent(state, event)) queue.push(updateFor(state));
       });
       const abort = () => {
         void session.abort().catch((error: unknown) => queue.fail(error));

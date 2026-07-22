@@ -127,7 +127,7 @@ const AssistantMessage = () => (
   <MessagePrimitive.Root>
     <Box flexDirection="column" marginBottom={1}>
       <Text bold color="blue">
-        Pi:
+        TIA:
       </Text>
       <MessagePrimitive.Content
         renderText={({ part }) =>
@@ -180,7 +180,7 @@ export const Thread = ({ modelName, directory }: ThreadProps) => {
               <Text bold color="cyan">
                 TIA Code
               </Text>
-              <Text dimColor> (Pi harness)</Text>
+              <Text dimColor> (TIA agent)</Text>
             </Text>
             <Box marginTop={1} flexDirection="column">
               <Text>
@@ -194,14 +194,14 @@ export const Thread = ({ modelName, directory }: ThreadProps) => {
               </Text>
               <Text>
                 <Text dimColor>tools:     </Text>
-                <Text color="yellow">Pi coding tools</Text>
+                <Text color="yellow">TIA skills & MCP tools</Text>
               </Text>
             </Box>
           </Box>
           <Box marginTop={1} marginLeft={1}>
             <Text>
               <Text bold>Tip: </Text>
-              Start with an outcome, or ask Pi to inspect the current project.
+              Start with an outcome, or ask TIA to inspect the current project.
             </Text>
           </Box>
         </Box>
@@ -220,7 +220,7 @@ export const Thread = ({ modelName, directory }: ThreadProps) => {
         <ComposerPrimitive.Input
           submitOnEnter
           multiLine
-          placeholder="Ask Pi to inspect or change this project... (Enter to send)"
+          placeholder="Ask TIA to inspect or change this project... (Enter to send)"
           autoFocus
         />
       </Box>
