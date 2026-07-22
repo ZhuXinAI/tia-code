@@ -176,7 +176,7 @@ export const Thread = ({ modelName, directory, mcp, onConfigure }: ThreadProps) 
             borderColor="gray"
             paddingX={1}
             flexDirection="column"
-            width={62}
+            width={70}
           >
             <Text>
               <Text dimColor>{">_ "}</Text>
