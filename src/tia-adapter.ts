@@ -26,6 +26,7 @@ import type { TiaSessionExitSummary } from "./tia-session-exit.js";
 
 type TiaChatModelAdapter = ChatModelAdapter & {
   initialize(): Promise<readonly ThreadMessageLike[]>;
+  runPrompt(prompt: string, onTextDelta: (delta: string) => void): Promise<void>;
   dispose(): Promise<TiaSessionExitSummary | undefined>;
   mcp: McpManager;
 };
@@ -399,6 +400,37 @@ export const createTiaAdapter = (
     return transcriptFrom(session);
   };
 
+  const runPrompt = async (
+    rawPrompt: string,
+    onTextDelta: (delta: string) => void,
+  ): Promise<void> => {
+    const prompt = rawPrompt.trim();
+    if (!prompt) throw new Error("Message is empty");
+
+    const session = await ensureSession();
+    let streamError: unknown;
+    const unsubscribe = session.subscribe((event) => {
+      if (event.type === "message_update") {
+        const update = event.assistantMessageEvent;
+        if (update.type === "text_delta") onTextDelta(update.delta);
+        if (update.type === "error") streamError = update;
+        return;
+      }
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        if (event.message.stopReason === "error") {
+          streamError = event.message.errorMessage ?? "TIA stopped with an error";
+        }
+      }
+    });
+
+    try {
+      await session.prompt(prompt, session.isStreaming ? { streamingBehavior: "steer" } : undefined);
+      if (streamError) throw new Error(stringFromUnknown(streamError));
+    } finally {
+      unsubscribe();
+    }
+  };
+
   const dispose = (): Promise<TiaSessionExitSummary | undefined> => {
     if (closing) return closing;
     disposed = true;
@@ -441,6 +473,7 @@ export const createTiaAdapter = (
 
   return {
     initialize,
+    runPrompt,
     dispose,
     mcp,
     async *run(options) {

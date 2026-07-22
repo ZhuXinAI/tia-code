@@ -162,6 +162,15 @@ const messageFromUnknown = (error: unknown): string =>
 const truncate = (value: string, maxLength: number): string =>
   value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
 
+const environmentForCodexMcpCommand = (): NodeJS.ProcessEnv => {
+  const environment = { ...process.env };
+  // TIA never needs npm publish credentials to inspect or manage Codex MCP
+  // configuration. Keep release tokens out of this child-process boundary.
+  delete environment.NPM_TOKEN;
+  delete environment.NODE_AUTH_TOKEN;
+  return environment;
+};
+
 const serializeResult = (result: unknown): string => {
   const value = isRecord(result) ? result : {};
   const content = (Array.isArray(value.content) ? value.content : []).map((part) => {
@@ -198,7 +207,7 @@ class CodexMcpRunner {
     return new Promise<string>((resolve, reject) => {
       const child = spawn("codex", ["mcp", ...args], {
         cwd: process.cwd(),
-        env: process.env,
+        env: environmentForCodexMcpCommand(),
         stdio: ["ignore", "pipe", "pipe"],
       });
       this.active.add(child);

@@ -1,12 +1,48 @@
 {
   "name": "tia-code",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "A local terminal coding agent with interactive and scriptable modes.",
+  "author": "ZhuXinAI",
+  "license": "MIT",
+  "private": false,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZhuXinAI/tia-code.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ZhuXinAI/tia-code/issues"
+  },
+  "homepage": "https://github.com/ZhuXinAI/tia-code#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "tia-code": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "screenshot.png"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "coding-agent",
+    "terminal"
+  ],
   "scripts": {
     "dev": "node --import tsx/esm src/dev.ts",
-    "build": "tsc",
-    "start": "node dist/index.js"
+    "clean": "node scripts/clean.mjs",
+    "build": "npm run clean && tsc",
+    "start": "node dist/index.js",
+    "test": "node --import tsx/esm --test test/cli.test.ts",
+    "prepack": "npm run build && npm run test"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^2.0.16",

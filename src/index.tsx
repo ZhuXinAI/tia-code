@@ -1,12 +1,34 @@
-import { render } from "ink";
-import { App, type TiaCodeExitResult } from "./app.js";
-import { parseTiaCodeCommand } from "./cli.js";
+#!/usr/bin/env node
+
+import type { TiaCodeExitResult } from "./app.js";
+import { parseTiaCodeCommand, TIA_CODE_USAGE } from "./cli.js";
+import { runTiaCodePrompt } from "./non-interactive.js";
 import { formatTiaSessionExitSummary } from "./tia-session-exit.js";
 
 const writeToStdout = (value: string): Promise<void> =>
   new Promise((resolve) => {
     process.stdout.write(value, "utf8", () => resolve());
   });
+
+const runNonInteractive = async (prompt: string): Promise<void> => {
+  let pendingOutput = Promise.resolve();
+  let wroteOutput = false;
+  let endsWithNewline = false;
+  const enqueueOutput = (value: string): void => {
+    if (value) {
+      wroteOutput = true;
+      endsWithNewline = value.endsWith("\n");
+    }
+    pendingOutput = pendingOutput.then(() => writeToStdout(value));
+  };
+
+  try {
+    await runTiaCodePrompt(prompt, enqueueOutput);
+  } finally {
+    if (wroteOutput && !endsWithNewline) enqueueOutput("\n");
+    await pendingOutput;
+  }
+};
 
 const main = async (): Promise<void> => {
   let command;
@@ -17,6 +39,25 @@ const main = async (): Promise<void> => {
     process.exitCode = 1;
     return;
   }
+
+  if (command.type === "help") {
+    await writeToStdout(`${TIA_CODE_USAGE}\n`);
+    return;
+  }
+
+  if (command.type === "run") {
+    try {
+      await runNonInteractive(command.prompt);
+    } catch (error) {
+      process.stderr.write(
+        `TIA Code run failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  const [{ render }, { App }] = await Promise.all([import("ink"), import("./app.js")]);
 
   const app = render(<App resumeSessionId={command.resumeSessionId} />, {
     exitOnCtrlC: false,
