@@ -70,6 +70,7 @@ class AsyncQueue<T> {
 
 type StreamState = {
   parts: ThreadAssistantMessagePart[];
+  /** Content indexes are scoped to one streamed Pi assistant message. */
   contentPartIndexes: Map<number, number>;
   toolPartIndexes: Map<string, number>;
   error?: unknown;
@@ -94,6 +95,21 @@ const updateFor = (state: StreamState): ChatModelRunResult => ({
   content: [...state.parts],
 });
 
+const formatDuration = (durationMs: number): string => {
+  const seconds = Math.max(1, Math.round(durationMs / 1_000));
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  return `${minutes}m ${String(remainingSeconds).padStart(2, "0")}s`;
+};
+
+const appendDuration = (state: StreamState, startedAt: number): void => {
+  state.parts.push({
+    type: "text",
+    text: `Worked for ${formatDuration(Date.now() - startedAt)}`,
+  });
+};
+
 const appendDelta = (
   state: StreamState,
   contentIndex: number,
@@ -115,6 +131,10 @@ const appendDelta = (
 
 const applyPiEvent = (state: StreamState, event: AgentSessionEvent): boolean => {
   switch (event.type) {
+    case "message_start": {
+      if (event.message.role === "assistant") state.contentPartIndexes.clear();
+      return false;
+    }
     case "message_update": {
       const update = event.assistantMessageEvent;
       if (update.type === "text_delta") {
@@ -250,6 +270,7 @@ export const createPiAdapter = (
       const prompt = lastUserText(options.messages);
       if (!prompt) throw new Error("Message is empty");
 
+      const startedAt = Date.now();
       const session = await ensureSession();
       const queue = new AsyncQueue<ChatModelRunResult>();
       const state: StreamState = {
@@ -271,19 +292,33 @@ export const createPiAdapter = (
         .prompt(prompt, session.isStreaming ? { streamingBehavior: "steer" } : undefined)
         .then(
           () => {
-            if (state.error) {
-              queue.push({
-                ...updateFor(state),
-                status: {
-                  type: "incomplete",
-                  reason: "error",
-                  error: stringFromUnknown(state.error),
-                },
-              });
-            }
+            appendDuration(state, startedAt);
+            queue.push(
+              state.error
+                ? {
+                    ...updateFor(state),
+                    status: {
+                      type: "incomplete",
+                      reason: "error",
+                      error: stringFromUnknown(state.error),
+                    },
+                  }
+                : updateFor(state),
+            );
             queue.close();
           },
-          (error: unknown) => queue.fail(error),
+          (error: unknown) => {
+            appendDuration(state, startedAt);
+            queue.push({
+              ...updateFor(state),
+              status: {
+                type: "incomplete",
+                reason: "error",
+                error: stringFromUnknown(error),
+              },
+            });
+            queue.close();
+          },
         );
 
       try {
