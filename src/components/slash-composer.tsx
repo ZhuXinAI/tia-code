@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import { ComposerPrimitive, useAui, useAuiState } from "@assistant-ui/react-ink";
 import { listProjectSkills } from "../agent-skills.js";
 import { type McpCommandResult, McpManager } from "../mcp-manager.js";
+import { commandResultMetadata } from "./command-history.js";
 
 type SlashCommandId = "model" | "mcp" | "skills";
 
@@ -10,8 +11,6 @@ type SlashCommand = {
   id: SlashCommandId;
   description: string;
 };
-
-type CommandPanel = McpCommandResult;
 
 type SlashComposerProps = {
   directory: string;
@@ -101,30 +100,20 @@ const Menu = ({ input }: { input: string }) => {
   );
 };
 
-const Panel = ({ result }: { result: CommandPanel | undefined }) => {
-  if (!result) return null;
-  const color = result.tone === "error" ? "red" : result.tone === "success" ? "green" : "cyan";
-
-  return (
-    <Box borderStyle="round" borderColor={color} paddingX={1} flexDirection="column" marginBottom={1}>
-      <Text bold color={color}>
-        {result.title}
-      </Text>
-      {result.lines.map((line, index) => (
-        <Text key={`${line}-${index}`} wrap="truncate">
-          {line}
-        </Text>
-      ))}
-    </Box>
-  );
-};
-
 export const SlashComposer = ({ directory, mcp, onConfigure }: SlashComposerProps) => {
   const aui = useAui();
   const text = useAuiState((state) => state.composer.text);
-  const [panel, setPanel] = useState<CommandPanel>();
   const [running, setRunning] = useState(false);
   const menuInput = useMemo(() => text.trimStart(), [text]);
+
+  const appendCommandResult = (result: McpCommandResult) => {
+    aui.thread().append({
+      role: "assistant",
+      content: [{ type: "text", text: result.title }],
+      metadata: commandResultMetadata(result),
+      startRun: false,
+    });
+  };
 
   const submitMessage = () => {
     const state = aui.thread().getState();
@@ -135,7 +124,7 @@ export const SlashComposer = ({ directory, mcp, onConfigure }: SlashComposerProp
   const submitCommand = (raw: string) => {
     const match = raw.trim().match(/^\/([^\s/]+)(?:\s+([\s\S]*))?$/);
     if (!match) {
-      setPanel({
+      appendCommandResult({
         title: "Slash commands",
         lines: ["Use /model, /mcp, or /skills."],
         tone: "error",
@@ -146,7 +135,7 @@ export const SlashComposer = ({ directory, mcp, onConfigure }: SlashComposerProp
 
     const command = findCommand(match[1]!.toLowerCase());
     if (!command) {
-      setPanel({
+      appendCommandResult({
         title: "Slash commands",
         lines: [`Unknown command: /${match[1]}. Use /model, /mcp, or /skills.`],
         tone: "error",
@@ -157,7 +146,7 @@ export const SlashComposer = ({ directory, mcp, onConfigure }: SlashComposerProp
 
     const parsed = parseArguments(match[2] ?? "");
     if (parsed.error) {
-      setPanel({ title: `/${command.id}`, lines: [parsed.error], tone: "error" });
+      appendCommandResult({ title: `/${command.id}`, lines: [parsed.error], tone: "error" });
       return;
     }
     const args = parsed.values ?? [];
@@ -165,7 +154,7 @@ export const SlashComposer = ({ directory, mcp, onConfigure }: SlashComposerProp
 
     if (command.id === "model") {
       if (args.length > 0) {
-        setPanel({ title: "/model", lines: ["Usage: /model"], tone: "error" });
+        appendCommandResult({ title: "/model", lines: ["Usage: /model"], tone: "error" });
         return;
       }
       onConfigure();
@@ -173,21 +162,24 @@ export const SlashComposer = ({ directory, mcp, onConfigure }: SlashComposerProp
     }
 
     if (running) {
-      setPanel({ title: `/${command.id}`, lines: ["Another slash command is still running."], tone: "error" });
+      appendCommandResult({
+        title: `/${command.id}`,
+        lines: ["Another slash command is still running."],
+        tone: "error",
+      });
       return;
     }
 
     setRunning(true);
-    setPanel({ title: `/${command.id}`, lines: ["Working…"], tone: "info" });
     void (async () => {
       try {
         if (command.id === "skills") {
           if (args.length > 0) {
-            setPanel({ title: "/skills", lines: ["Usage: /skills"], tone: "error" });
+            appendCommandResult({ title: "/skills", lines: ["Usage: /skills"], tone: "error" });
             return;
           }
           const skills = listProjectSkills(directory);
-          setPanel({
+          appendCommandResult({
             title: "Project skills · .agents/skills",
             lines:
               skills.length === 0
@@ -200,9 +192,9 @@ export const SlashComposer = ({ directory, mcp, onConfigure }: SlashComposerProp
           });
           return;
         }
-        setPanel(await mcp.executeSlashCommand(args));
+        appendCommandResult(await mcp.executeSlashCommand(args));
       } catch (error) {
-        setPanel({
+        appendCommandResult({
           title: `/${command.id}`,
           lines: [error instanceof Error ? error.message : "The command could not complete."],
           tone: "error",
@@ -216,7 +208,6 @@ export const SlashComposer = ({ directory, mcp, onConfigure }: SlashComposerProp
   return (
     <>
       <Menu input={menuInput} />
-      <Panel result={panel} />
       <Box borderStyle="round" borderColor="gray" paddingX={1}>
         <Text color="gray">{"> "}</Text>
         <ComposerPrimitive.Input

@@ -29,9 +29,7 @@ export const formatTiaSessionExitSummary = (
   const lines = [`Token usage: total=${formatTokens(total)} ${inputText} ${outputText}`];
 
   if (summary.resumeSessionId) {
-    lines.push(
-      `To continue this session, run pnpm run dev -- resume ${summary.resumeSessionId}`,
-    );
+    lines.push(`To continue this session, run tia-code resume ${summary.resumeSessionId}`);
   }
 
   return lines.join("\n");

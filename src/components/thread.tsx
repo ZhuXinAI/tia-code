@@ -8,6 +8,7 @@ import {
 } from "@assistant-ui/react-ink";
 import { MarkdownText } from "@assistant-ui/react-ink-markdown";
 import { McpManager } from "../mcp-manager.js";
+import { commandResultFromMessage } from "./command-history.js";
 import { SlashComposer } from "./slash-composer.js";
 
 type ThreadProps = {
@@ -156,6 +157,26 @@ const AssistantMessage = () => (
   </MessagePrimitive.Root>
 );
 
+const CommandResultMessage = ({ result }: { result: ReturnType<typeof commandResultFromMessage> }) => {
+  if (!result) return null;
+  const color = result.tone === "error" ? "red" : result.tone === "success" ? "green" : "cyan";
+
+  return (
+    <MessagePrimitive.Root>
+      <Box borderStyle="round" borderColor={color} paddingX={1} flexDirection="column" marginBottom={1}>
+        <Text bold color={color}>
+          {result.title}
+        </Text>
+        {result.lines.map((line, index) => (
+          <Text key={`${line}-${index}`} wrap="wrap">
+            {line}
+          </Text>
+        ))}
+      </Box>
+    </MessagePrimitive.Root>
+  );
+};
+
 const Loading = () => (
   <LoadingPrimitive.Root marginBottom={1}>
     <LoadingPrimitive.Spinner />
@@ -207,9 +228,11 @@ export const Thread = ({ modelName, directory, mcp, onConfigure }: ThreadProps) 
       </ThreadPrimitive.Empty>
 
       <ThreadPrimitive.Messages>
-        {({ message }) =>
-          message.role === "user" ? <UserMessage /> : <AssistantMessage />
-        }
+        {({ message }) => {
+          const commandResult = commandResultFromMessage(message);
+          if (message.role === "user") return <UserMessage />;
+          return commandResult ? <CommandResultMessage result={commandResult} /> : <AssistantMessage />;
+        }}
       </ThreadPrimitive.Messages>
 
       <Loading />

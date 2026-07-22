@@ -364,6 +364,7 @@ export const createTiaAdapter = (
     if (liveSession) return liveSession;
     if (!opening) {
       opening = (async () => {
+        const startupMcpConnections = mcp.connectOnStartup();
         const { agentDir, modelRuntime, model } = await createTiaModelRuntime(configuration);
         const settingsManager = SettingsManager.inMemory();
         const resourceLoader = new DefaultResourceLoader({
@@ -386,6 +387,7 @@ export const createTiaAdapter = (
           sessionManager,
           customTools: mcp.createTools(),
         });
+        await startupMcpConnections;
         liveSession = session;
         return session;
       })().finally(() => {

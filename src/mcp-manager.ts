@@ -23,6 +23,10 @@ type McpClientAttempt = {
   abort: () => Promise<void>;
 };
 
+type McpConnectOptions = {
+  refresh?: boolean;
+};
+
 export type McpServerSummary = {
   name: string;
   transport: "stdio" | "http" | "sse";
@@ -94,6 +98,16 @@ const authenticationStatus = (server: TiaMcpServer): string => {
   if (server.oauth?.tokens) return "OAuth signed in";
   if (server.oauth?.clientInformation) return "OAuth sign-in incomplete";
   return "no credentials configured";
+};
+
+const isReadyForStartupConnection = (server: TiaMcpServer): boolean => {
+  if (server.transport.type === "stdio") {
+    return server.transport.envVars.every((name) => process.env[name] !== undefined);
+  }
+  if (server.transport.bearerTokenEnvVar) {
+    return Boolean(process.env[server.transport.bearerTokenEnvVar]);
+  }
+  return !server.oauth || Boolean(server.oauth.tokens);
 };
 
 const serializeResult = (result: unknown): string => {
@@ -349,13 +363,17 @@ export class McpManager {
     };
   }
 
-  async connect(name: string): Promise<{ server: McpServerSummary; tools: McpToolSummary[] }> {
+  async connect(
+    name: string,
+    options: McpConnectOptions = {},
+  ): Promise<{ server: McpServerSummary; tools: McpToolSummary[] }> {
     if (this.disposed) throw new Error("TIA's MCP manager has closed.");
     const existing = this.connections.get(name);
-    if (existing) {
+    if (existing && !options.refresh) {
       const server = await this.resolveServer(name);
       return { server: this.summary(server), tools: existing.tools };
     }
+    if (existing) await this.disconnect(name);
 
     const server = await this.resolveServer(name);
     let client: MCPClient | undefined;
@@ -390,6 +408,26 @@ export class McpManager {
       await client?.close().catch(() => undefined);
       throw new Error(`Could not connect "${name}": ${messageFromUnknown(error)}`);
     }
+  }
+
+  /**
+   * Reattach saved MCP servers that can authenticate without prompting. An
+   * unavailable server must never prevent TIA from opening, and incomplete
+   * OAuth sign-ins stay manual so startup never launches a browser.
+   */
+  async connectOnStartup(): Promise<void> {
+    let servers: TiaMcpServer[];
+    try {
+      servers = await this.configuredServers();
+    } catch {
+      return;
+    }
+
+    await Promise.all(
+      servers.filter(isReadyForStartupConnection).map(async (server) => {
+        await this.connect(server.name).catch(() => undefined);
+      }),
+    );
   }
 
   async disconnect(name: string): Promise<boolean> {
@@ -433,8 +471,8 @@ export class McpManager {
         name: "mcp_list_tools",
         label: "List Connected MCP Tools",
         description:
-          "List MCP servers and tools that the user has connected to TIA with /mcp connect. Use this before calling mcp_call.",
-        promptSnippet: "List tools from MCP servers the user explicitly connected to TIA.",
+          "List MCP servers and tools connected to this TIA session. Saved servers with ready authentication connect at startup; /mcp connect refreshes one manually. Use this before calling mcp_call.",
+        promptSnippet: "List tools from MCP servers connected to this TIA session.",
         promptGuidelines: [
           "Only use MCP servers listed by mcp_list_tools.",
           "Ask the user to run /mcp connect <server> before trying an unconnected server.",
@@ -472,8 +510,8 @@ export class McpManager {
         name: "mcp_call",
         label: "Call Connected MCP Tool",
         description:
-          "Call a tool on an MCP server the user explicitly connected to TIA. Discover exact server and tool names with mcp_list_tools first.",
-        promptSnippet: "Call a tool on an explicitly connected MCP server.",
+          "Call a tool on an MCP server connected to this TIA session. Discover exact server and tool names with mcp_list_tools first.",
+        promptSnippet: "Call a tool on a connected MCP server.",
         promptGuidelines: [
           "Use mcp_list_tools before mcp_call when the exact tool name is not already known.",
           "Never invent an MCP server or tool name.",
@@ -556,10 +594,12 @@ export class McpManager {
       if (!name || args.length !== 1) {
         return { title: "MCP connect", lines: ["Usage: /mcp connect <name>"], tone: "error" };
       }
-      const { tools } = await this.connect(name);
+      const wasConnected = this.connections.has(name);
+      const { tools } = await this.connect(name, { refresh: true });
       return {
-        title: `Connected MCP · ${name}`,
+        title: `${wasConnected ? "Refreshed" : "Connected"} MCP · ${name}`,
         lines: [
+          ...(wasConnected ? [`Refreshed "${name}" and rediscovered its tools.`] : []),
           `${tools.length} tool${tools.length === 1 ? "" : "s"} available to TIA.`,
           ...tools.map((tool) => `${tool.name}${tool.description ? ` — ${tool.description}` : ""}`),
         ],
@@ -705,7 +745,7 @@ export class McpManager {
       title: "MCP commands",
       lines: [
         "/mcp · /mcp list · /mcp get <name>",
-        "/mcp connect <name> · /mcp disconnect <name>",
+        "/mcp connect <name> (connects or refreshes) · /mcp disconnect <name>",
         "/mcp add <name> --url <url> [--bearer-token-env <NAME>] (connects once and signs in with OAuth if needed)",
         "/mcp add <name> --sse <url> [--bearer-token-env <NAME>]",
         "/mcp add <name> [--env <NAME>]... [--cwd <path>] -- <command> [args...]",

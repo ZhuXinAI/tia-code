@@ -79,7 +79,7 @@ For an SSE endpoint, use `--sse` instead of `--url`. For a local stdio server, s
 /mcp add local-tools --env MY_SERVICE_TOKEN -- node ./my-mcp-server.js
 ```
 
-Use `/mcp connect <name>` to attach a saved server to a later interactive conversation. Use `/mcp` to see the full command list, `/mcp logout <name>` to clear local OAuth credentials, and `/mcp remove <name> --confirm` to remove a server. TIA Code stores this list and OAuth credentials only in `~/.tia-code/mcp.json` with owner-only permissions. Bearer-token values stay in your environment; TIA Code stores only their variable names.
+On startup, TIA Code reconnects saved MCP servers whose authentication is ready without opening a browser. OAuth sign-ins that are incomplete and servers missing required environment variables stay disconnected until you fix them. Use `/mcp connect <name>` later to connect a saved server or refresh its tool list, `/mcp` to see the full command list, `/mcp logout <name>` to clear local OAuth credentials, and `/mcp remove <name> --confirm` to remove a server. TIA Code stores this list and OAuth credentials only in `~/.tia-code/mcp.json` with owner-only permissions. Bearer-token values stay in your environment; TIA Code stores only their variable names.
 
 ## Run one task from a script
 

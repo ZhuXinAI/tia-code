@@ -38,6 +38,7 @@ const readRequestBody = async (request: IncomingMessage): Promise<string> => {
 const startOAuthMcpServer = async ({ failTokenExchange = false }: { failTokenExchange?: boolean } = {}) => {
   let origin = "";
   let unauthenticatedPostCount = 0;
+  let initializeCount = 0;
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", origin || "http://127.0.0.1");
 
@@ -94,6 +95,7 @@ const startOAuthMcpServer = async ({ failTokenExchange = false }: { failTokenExc
         return;
       }
       if (message.method === "initialize") {
+        initializeCount += 1;
         json(response, {
           jsonrpc: "2.0",
           id: message.id,
@@ -140,6 +142,7 @@ const startOAuthMcpServer = async ({ failTokenExchange = false }: { failTokenExc
   return {
     origin,
     unauthenticatedPostCount: () => unauthenticatedPostCount,
+    initializeCount: () => initializeCount,
     close: async () => {
       server.close();
       await once(server, "close");
@@ -244,6 +247,44 @@ test("adds an OAuth MCP server by connecting, signing in once, and retrying", as
     await manager.dispose();
     await oauthMcp.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("auto-connects saved OAuth MCP servers with complete sign-in and skips incomplete sign-in", async () => {
+  const oauthMcp = await startOAuthMcpServer();
+  try {
+    await withTemporaryManager(async (manager, path) => {
+      await saveTiaMcpServer(
+        {
+          name: "ready",
+          transport: { type: "http", url: `${oauthMcp.origin}/mcp` },
+          oauth: { tokens: { access_token: "test-access-token", token_type: "Bearer" } },
+        },
+        path,
+      );
+      await saveTiaMcpServer(
+        {
+          name: "needs-login",
+          transport: { type: "http", url: `${oauthMcp.origin}/mcp` },
+          oauth: { clientInformation: { client_id: "test-client" } },
+        },
+        path,
+      );
+
+      await manager.connectOnStartup();
+
+      const servers = await manager.listServers();
+      assert.equal(servers.find((server) => server.name === "ready")?.connection, "connected");
+      assert.equal(servers.find((server) => server.name === "needs-login")?.connection, "disconnected");
+      assert.equal(oauthMcp.unauthenticatedPostCount(), 0);
+      assert.equal(oauthMcp.initializeCount(), 1);
+
+      const refreshed = await manager.executeSlashCommand(["connect", "ready"]);
+      assert.equal(refreshed.title, "Refreshed MCP · ready");
+      assert.equal(oauthMcp.initializeCount(), 2);
+    });
+  } finally {
+    await oauthMcp.close();
   }
 });
 
