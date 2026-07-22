@@ -49,21 +49,21 @@ export const TIA_PROVIDER_OPTIONS: readonly TiaProviderOption[] = [
     label: "DeepSeek",
     baseUrl: "https://api.deepseek.com/v1",
     api: "openai-completions",
-    models: ["deepseek-chat", "deepseek-reasoner"],
+    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
   },
   {
     id: "kimi",
     label: "Kimi",
     baseUrl: "https://api.kimi.com/coding/v1",
     api: "anthropic-messages",
-    models: ["kimi-k2.5"],
+    models: ["kimi-k2.5", "kimi-k3"],
   },
   {
     id: "opencode-go",
     label: "OpenCode Go",
     baseUrl: "https://opencode.ai/zen/go/v1",
     api: "openai-completions",
-    models: ["mimo-v2.5"],
+    models: ["mimo-v2.5", "deepseek-v4-flash", "deepseek-v4-pro"],
   },
 ];
 

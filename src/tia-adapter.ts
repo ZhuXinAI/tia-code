@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { chmod } from "node:fs/promises";
+import { join } from "node:path";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -20,11 +21,13 @@ import {
   ensureTiaSessionDirectory,
   type TiaConfiguration,
 } from "./tia-configuration.js";
+import { McpManager } from "./mcp-manager.js";
 import type { TiaSessionExitSummary } from "./tia-session-exit.js";
 
 type TiaChatModelAdapter = ChatModelAdapter & {
   initialize(): Promise<readonly ThreadMessageLike[]>;
   dispose(): Promise<TiaSessionExitSummary | undefined>;
+  mcp: McpManager;
 };
 
 type TiaAdapterOptions = {
@@ -353,6 +356,7 @@ export const createTiaAdapter = (
   let opening: Promise<AgentSession> | undefined;
   let disposed = false;
   let closing: Promise<TiaSessionExitSummary | undefined> | undefined;
+  const mcp = new McpManager();
 
   const ensureSession = async (): Promise<AgentSession> => {
     if (disposed) throw new Error("TIA session has been closed");
@@ -365,6 +369,9 @@ export const createTiaAdapter = (
           cwd,
           agentDir,
           settingsManager,
+          additionalSkillPaths: existsSync(join(cwd, ".agents", "skills"))
+            ? [join(cwd, ".agents", "skills")]
+            : [],
         });
         await resourceLoader.reload();
         const sessionManager = await createTiaSessionManager(cwd, options.resumeSessionId);
@@ -376,6 +383,7 @@ export const createTiaAdapter = (
           resourceLoader,
           settingsManager,
           sessionManager,
+          customTools: mcp.createTools(),
         });
         liveSession = session;
         return session;
@@ -398,7 +406,10 @@ export const createTiaAdapter = (
     closing = (async () => {
       const session = liveSession ?? (opening ? await opening.catch(() => undefined) : undefined);
       liveSession = undefined;
-      if (!session) return undefined;
+      if (!session) {
+        await mcp.dispose();
+        return undefined;
+      }
 
       try {
         await session.abort().catch(() => undefined);
@@ -417,7 +428,11 @@ export const createTiaAdapter = (
           resumeSessionId: isResumable ? stats.sessionId : undefined,
         };
       } finally {
-        session.dispose();
+        try {
+          session.dispose();
+        } finally {
+          await mcp.dispose();
+        }
       }
     })();
 
@@ -427,6 +442,7 @@ export const createTiaAdapter = (
   return {
     initialize,
     dispose,
+    mcp,
     async *run(options) {
       const prompt = lastUserText(options.messages);
       if (!prompt) throw new Error("Message is empty");

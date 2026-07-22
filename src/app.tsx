@@ -99,7 +99,15 @@ const SessionExitOnCtrlC = ({ adapter }: { adapter: TiaAdapter }) => {
   return null;
 };
 
-const Conversation = ({ modelName }: { modelName: string }) => {
+const Conversation = ({
+  modelName,
+  adapter,
+  onConfigure,
+}: {
+  modelName: string;
+  adapter: TiaAdapter;
+  onConfigure: () => void;
+}) => {
   const hasMessages = useAuiState((state) => state.thread.messages.length > 0);
 
   return (
@@ -115,11 +123,16 @@ const Conversation = ({ modelName }: { modelName: string }) => {
           <StatusBar modelName={modelName} />
         </Box>
       ) : null}
-      <Thread modelName={modelName} directory={process.cwd()} />
+      <Thread
+        modelName={modelName}
+        directory={process.cwd()}
+        mcp={adapter.mcp}
+        onConfigure={onConfigure}
+      />
       <Text dimColor>
         {hasMessages
-          ? "Ctrl+O to change the TIA provider or model · Ctrl+C to exit."
-          : "Ctrl+C to exit."}
+          ? "/model · /mcp · /skills · Ctrl+O to change the TIA provider or model · Ctrl+C to exit."
+          : "/model · /mcp · /skills · Ctrl+C to exit."}
       </Text>
     </Box>
   );
@@ -160,7 +173,7 @@ const ActiveConfiguredApp = ({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <Conversation modelName={modelName} />
+      <Conversation modelName={modelName} adapter={adapter} onConfigure={onConfigure} />
     </AssistantRuntimeProvider>
   );
 };

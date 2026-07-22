@@ -2,16 +2,19 @@ import { homedir } from "node:os";
 import { Box, Text } from "ink";
 import {
   ThreadPrimitive,
-  ComposerPrimitive,
   MessagePrimitive,
   ErrorPrimitive,
   LoadingPrimitive,
 } from "@assistant-ui/react-ink";
 import { MarkdownText } from "@assistant-ui/react-ink-markdown";
+import { McpManager } from "../mcp-manager.js";
+import { SlashComposer } from "./slash-composer.js";
 
 type ThreadProps = {
   modelName: string;
   directory: string;
+  mcp: McpManager;
+  onConfigure: () => void;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -163,7 +166,7 @@ const Loading = () => (
   </LoadingPrimitive.Root>
 );
 
-export const Thread = ({ modelName, directory }: ThreadProps) => {
+export const Thread = ({ modelName, directory, mcp, onConfigure }: ThreadProps) => {
   return (
     <ThreadPrimitive.Root>
       <ThreadPrimitive.Empty>
@@ -192,10 +195,6 @@ export const Thread = ({ modelName, directory }: ThreadProps) => {
                 <Text dimColor>directory: </Text>
                 <Text>{displayDirectory(directory)}</Text>
               </Text>
-              <Text>
-                <Text dimColor>tools:     </Text>
-                <Text color="yellow">TIA skills & MCP tools</Text>
-              </Text>
             </Box>
           </Box>
           <Box marginTop={1} marginLeft={1}>
@@ -215,15 +214,7 @@ export const Thread = ({ modelName, directory }: ThreadProps) => {
 
       <Loading />
 
-      <Box borderStyle="round" borderColor="gray" paddingX={1}>
-        <Text color="gray">{"> "}</Text>
-        <ComposerPrimitive.Input
-          submitOnEnter
-          multiLine
-          placeholder="Ask TIA to inspect or change this project... (Enter to send)"
-          autoFocus
-        />
-      </Box>
+      <SlashComposer directory={directory} mcp={mcp} onConfigure={onConfigure} />
     </ThreadPrimitive.Root>
   );
 };

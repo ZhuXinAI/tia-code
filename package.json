@@ -9,6 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "^2.0.16",
     "@assistant-ui/react-ink": "latest",
     "@assistant-ui/react-ink-markdown": "latest",
     "@earendil-works/pi-coding-agent": "0.80.8",
