@@ -1,0 +1,23 @@
+{
+  "name": "tia-code",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --import tsx/esm src/dev.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@assistant-ui/react-ink": "latest",
+    "@assistant-ui/react-ink-markdown": "latest",
+    "ink": "^7.1.0",
+    "react": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
+  }
+}
