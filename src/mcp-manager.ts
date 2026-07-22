@@ -9,7 +9,7 @@ import {
   type TiaMcpServer,
   updateTiaMcpServer,
 } from "./mcp-configuration.js";
-import { createMcpOAuthProvider, loginToMcpServer } from "./mcp-oauth.js";
+import { createMcpOAuthProvider, loginToMcpServer, type McpLoginOptions } from "./mcp-oauth.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -46,6 +46,7 @@ export type McpCommandResult = {
 
 export type McpManagerOptions = {
   configurationPath?: string;
+  oauthLoginOptions?: McpLoginOptions;
 };
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 12_000;
@@ -239,11 +240,13 @@ export const parseMcpAddArguments = (args: readonly string[]): TiaMcpServer => {
 
 export class McpManager {
   private readonly configurationPath: string | undefined;
+  private readonly oauthLoginOptions: McpLoginOptions | undefined;
   private readonly connections = new Map<string, ConnectedMcpServer>();
   private disposed = false;
 
   constructor(options: McpManagerOptions = {}) {
     this.configurationPath = options.configurationPath;
+    this.oauthLoginOptions = options.oauthLoginOptions;
   }
 
   private async configuredServers(): Promise<TiaMcpServer[]> {
@@ -583,11 +586,51 @@ export class McpManager {
         const existing = await this.getServer(server.name);
         await saveTiaMcpServer(server, this.configurationPath);
         await this.disconnect(server.name);
+
+        let tools: McpToolSummary[];
+        let signedInAfterConnectionFailure = false;
+        try {
+          ({ tools } = await this.connect(server.name));
+        } catch (initialConnectionError) {
+          if (server.transport.type === "stdio" || server.transport.bearerTokenEnvVar) {
+            throw new Error(
+              `Saved "${server.name}", but could not connect: ${messageFromUnknown(initialConnectionError)}`,
+            );
+          }
+
+          try {
+            await loginToMcpServer(
+              await this.resolveServer(server.name),
+              this.configurationPath,
+              this.oauthLoginOptions,
+            );
+          } catch (loginError) {
+            throw new Error(
+              `Saved "${server.name}", but its initial connection failed: ${messageFromUnknown(initialConnectionError)}. ` +
+                `Automatic OAuth sign-in failed: ${messageFromUnknown(loginError)}`,
+            );
+          }
+
+          try {
+            ({ tools } = await this.connect(server.name));
+            signedInAfterConnectionFailure = true;
+          } catch (retryConnectionError) {
+            throw new Error(
+              `Saved "${server.name}" and completed OAuth sign-in, but its one retry failed: ` +
+                messageFromUnknown(retryConnectionError),
+            );
+          }
+        }
+
         return {
           title: "MCP add",
           lines: [
             `${existing ? "Updated" : "Added"} "${server.name}" in TIA Code's local MCP configuration.`,
-            `Run /mcp connect ${server.name} to make its tools available in this session.`,
+            signedInAfterConnectionFailure
+              ? "The initial connection required OAuth; TIA signed in and retried once."
+              : `Connected "${server.name}" on the first attempt.`,
+            `${tools.length} tool${tools.length === 1 ? "" : "s"} available to TIA.`,
+            ...tools.map((tool) => `${tool.name}${tool.description ? ` — ${tool.description}` : ""}`),
           ],
           tone: "success",
         };
@@ -625,7 +668,7 @@ export class McpManager {
       }
       const server = await this.resolveServer(name);
       await this.disconnect(name);
-      await loginToMcpServer(server, this.configurationPath);
+      await loginToMcpServer(server, this.configurationPath, this.oauthLoginOptions);
       return {
         title: "MCP login",
         lines: [
@@ -663,7 +706,7 @@ export class McpManager {
       lines: [
         "/mcp · /mcp list · /mcp get <name>",
         "/mcp connect <name> · /mcp disconnect <name>",
-        "/mcp add <name> --url <url> [--bearer-token-env <NAME>]",
+        "/mcp add <name> --url <url> [--bearer-token-env <NAME>] (connects once and signs in with OAuth if needed)",
         "/mcp add <name> --sse <url> [--bearer-token-env <NAME>]",
         "/mcp add <name> [--env <NAME>]... [--cwd <path>] -- <command> [args...]",
         "/mcp remove <name> --confirm · /mcp login <name> · /mcp logout <name>",

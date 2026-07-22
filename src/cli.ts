@@ -1,14 +1,17 @@
 export type TiaCodeCommand =
   | { type: "interactive"; resumeSessionId?: string }
   | { type: "run"; prompt: string }
+  | { type: "mcp"; args: string[] }
   | { type: "help" };
 
 export const TIA_CODE_USAGE = `Usage:
   tia-code
   tia-code resume <session-id>
   tia-code run <prompt>
+  tia-code mcp <command> [options]
 
 Commands:
+  mcp <command>         Manage MCP servers, for example: mcp add stripe --url https://mcp.stripe.com
   run <prompt>          Run TIA without the terminal UI; assistant text is written to stdout.
   resume <session-id>   Open a saved session in the terminal UI.
   --help, -h            Show this help.`;
@@ -27,6 +30,10 @@ export const parseTiaCodeCommand = (args: readonly string[]): TiaCodeCommand => 
   if (commandArgs[0] === "run") {
     const prompt = commandArgs.slice(1).join(" ").trim();
     if (prompt) return { type: "run", prompt };
+  }
+
+  if (commandArgs[0] === "mcp") {
+    return { type: "mcp", args: commandArgs.slice(1) };
   }
 
   if (commandArgs[0] === "resume" && commandArgs.length === 2 && commandArgs[1]?.trim()) {

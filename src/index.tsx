@@ -2,12 +2,18 @@
 
 import type { TiaCodeExitResult } from "./app.js";
 import { parseTiaCodeCommand, TIA_CODE_USAGE } from "./cli.js";
+import { McpManager } from "./mcp-manager.js";
 import { runTiaCodePrompt } from "./non-interactive.js";
 import { formatTiaSessionExitSummary } from "./tia-session-exit.js";
 
 const writeToStdout = (value: string): Promise<void> =>
   new Promise((resolve) => {
     process.stdout.write(value, "utf8", () => resolve());
+  });
+
+const writeToStderr = (value: string): Promise<void> =>
+  new Promise((resolve) => {
+    process.stderr.write(value, "utf8", () => resolve());
   });
 
 const runNonInteractive = async (prompt: string): Promise<void> => {
@@ -27,6 +33,25 @@ const runNonInteractive = async (prompt: string): Promise<void> => {
   } finally {
     if (wroteOutput && !endsWithNewline) enqueueOutput("\n");
     await pendingOutput;
+  }
+};
+
+const runMcpCommand = async (args: readonly string[]): Promise<void> => {
+  const mcp = new McpManager();
+  try {
+    const result = await mcp.executeSlashCommand(args);
+    const output = `${result.title}\n${result.lines.join("\n")}\n`;
+    if (result.tone === "error") {
+      await writeToStderr(output);
+      process.exitCode = 1;
+      return;
+    }
+    await writeToStdout(output);
+  } catch (error) {
+    await writeToStderr(`TIA Code MCP failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  } finally {
+    await mcp.dispose();
   }
 };
 
@@ -54,6 +79,11 @@ const main = async (): Promise<void> => {
       );
       process.exitCode = 1;
     }
+    return;
+  }
+
+  if (command.type === "mcp") {
+    await runMcpCommand(command.args);
     return;
   }
 

@@ -27,6 +27,13 @@ test("keeps resume in the interactive mode", () => {
   });
 });
 
+test("parses MCP commands without opening the interactive app", () => {
+  assert.deepEqual(parseTiaCodeCommand(["mcp", "add", "stripe", "--url", "https://mcp.stripe.com"]), {
+    type: "mcp",
+    args: ["add", "stripe", "--url", "https://mcp.stripe.com"],
+  });
+});
+
 test("rejects an empty non-interactive prompt", () => {
   assert.throws(() => parseTiaCodeCommand(["run"]), /Usage:\n  tia-code/);
 });

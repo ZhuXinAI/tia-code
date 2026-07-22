@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/tia-code.svg)](https://www.npmjs.com/package/tia-code)
 
-> A coding agent that works where your code lives: the terminal.
+> A minimal coding agent to hack with—right in your terminal.
 
 TIA Code turns a plain-language request into useful work in the current project. Ask it to understand a codebase, trace a bug, make a change, run a command, or explain what happened.
 
@@ -61,22 +61,25 @@ tia-code resume <session-id>
 
 ## Connect MCP tools
 
-TIA Code can connect to the MCP tools you choose. Add a remote server, sign in when it uses OAuth, then connect it for the current conversation.
+TIA Code can connect to the MCP tools you choose. Add a remote server from the command line or from an interactive session. Each add attempts one connection; if an OAuth-capable remote server rejects it, TIA opens the browser sign-in flow once and retries the connection once.
+
+```sh
+tia-code mcp add stripe --url https://mcp.stripe.com
+```
+
+The command saves the server and OAuth credentials locally, then finishes after its connection check. In an interactive conversation, `/mcp add` also leaves the server connected for that conversation.
 
 ```text
 /mcp add my-service --url https://service.example/mcp
-/mcp login my-service
-/mcp connect my-service
 ```
 
 For an SSE endpoint, use `--sse` instead of `--url`. For a local stdio server, supply the command after `--` and name only the environment variables it needs.
 
 ```text
 /mcp add local-tools --env MY_SERVICE_TOKEN -- node ./my-mcp-server.js
-/mcp connect local-tools
 ```
 
-Use `/mcp` to see the full command list, `/mcp logout <name>` to clear local OAuth credentials, and `/mcp remove <name> --confirm` to remove a server. TIA Code stores this list and OAuth credentials only in `~/.tia-code/mcp.json` with owner-only permissions. Bearer-token values stay in your environment; TIA Code stores only their variable names.
+Use `/mcp connect <name>` to attach a saved server to a later interactive conversation. Use `/mcp` to see the full command list, `/mcp logout <name>` to clear local OAuth credentials, and `/mcp remove <name> --confirm` to remove a server. TIA Code stores this list and OAuth credentials only in `~/.tia-code/mcp.json` with owner-only permissions. Bearer-token values stay in your environment; TIA Code stores only their variable names.
 
 ## Run one task from a script
 
