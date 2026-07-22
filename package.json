@@ -1,6 +1,6 @@
 {
   "name": "tia-code",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A local terminal coding agent with interactive and scriptable modes.",
   "author": "ZhuXinAI",
   "license": "MIT",
