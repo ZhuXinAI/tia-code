@@ -1,24 +1,47 @@
-import { useEffect, useMemo } from "react";
-import { Box, Text } from "ink";
+import { useEffect, useMemo, useState } from "react";
+import { Box, Text, useInput } from "ink";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
   StatusBarPrimitive,
 } from "@assistant-ui/react-ink";
 import { Thread } from "./components/thread.js";
-import { createPiAdapter, MODEL_NAME } from "./pi-adapter.js";
+import { PiSetup } from "./components/pi-setup.js";
+import { createPiAdapter } from "./pi-adapter.js";
+import {
+  getProviderOption,
+  loadPiConfiguration,
+  type PiConfiguration,
+} from "./pi-configuration.js";
 
-const StatusBar = () => (
+const StatusBar = ({ modelName }: { modelName: string }) => (
   <StatusBarPrimitive.Root>
     <Text dimColor>
-      model: <StatusBarPrimitive.ModelName name={MODEL_NAME} /> ·{" "}
+      model: <StatusBarPrimitive.ModelName name={modelName} /> ·{" "}
       <StatusBarPrimitive.MessageCount /> · <StatusBarPrimitive.Status />
     </Text>
   </StatusBarPrimitive.Root>
 );
 
-export const App = () => {
-  const adapter = useMemo(() => createPiAdapter(), []);
+const ConfigurationLoading = () => (
+  <Box flexDirection="column" padding={1}>
+    <Text bold color="cyan">
+      TIA Code
+    </Text>
+    <Text dimColor>Loading your Pi configuration…</Text>
+  </Box>
+);
+
+const ConfiguredApp = ({
+  configuration,
+  onConfigure,
+}: {
+  configuration: PiConfiguration;
+  onConfigure: () => void;
+}) => {
+  const provider = getProviderOption(configuration.providerId);
+  const modelName = `${provider.label} · ${configuration.modelId}`;
+  const adapter = useMemo(() => createPiAdapter(configuration), [configuration]);
   useEffect(
     () => () => {
       void adapter.dispose();
@@ -26,6 +49,9 @@ export const App = () => {
     [adapter],
   );
   const runtime = useLocalRuntime(adapter);
+  useInput((input, key) => {
+    if (key.ctrl && (input.toLowerCase() === "o" || input === "\u000f")) onConfigure();
+  });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
@@ -36,11 +62,44 @@ export const App = () => {
           </Text>
           <Text dimColor>{"  "}{process.cwd()}</Text>
         </Box>
-        <StatusBar />
+        <StatusBar modelName={modelName} />
         <Box marginTop={1}>
           <Thread />
         </Box>
+        <Text dimColor>Ctrl+O to change the Pi provider or model.</Text>
       </Box>
     </AssistantRuntimeProvider>
   );
+};
+
+export const App = () => {
+  const [configuration, setConfiguration] = useState<PiConfiguration | null | undefined>(undefined);
+  const [showSetup, setShowSetup] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void loadPiConfiguration().then((loaded) => {
+      if (mounted) setConfiguration(loaded);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (configuration === undefined) return <ConfigurationLoading />;
+
+  if (showSetup || !configuration) {
+    return (
+      <PiSetup
+        initialConfiguration={configuration ?? undefined}
+        onComplete={(nextConfiguration) => {
+          setConfiguration(nextConfiguration);
+          setShowSetup(false);
+        }}
+        onCancel={configuration ? () => setShowSetup(false) : undefined}
+      />
+    );
+  }
+
+  return <ConfiguredApp configuration={configuration} onConfigure={() => setShowSetup(true)} />;
 };

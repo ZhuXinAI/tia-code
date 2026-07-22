@@ -1,7 +1,8 @@
 import {
   createAgentSession,
-  ModelRuntime,
+  DefaultResourceLoader,
   SessionManager,
+  SettingsManager,
   type AgentSession,
   type AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
@@ -11,8 +12,7 @@ import type {
   ChatModelRunResult,
   ThreadAssistantMessagePart,
 } from "@assistant-ui/react-ink";
-
-export const MODEL_NAME = "Pi Coding Agent";
+import { createPiModelRuntime, type PiConfiguration } from "./pi-configuration.js";
 
 type PiChatModelAdapter = ChatModelAdapter & {
   dispose(): Promise<void>;
@@ -190,9 +190,13 @@ const lastUserText = (messages: ChatModelRunOptions["messages"]): string => {
 /**
  * Bridges one in-process Pi SDK session to assistant-ui's local runtime.
  * Pi owns model selection, its workspace-aware resource loader, tools, and
- * conversation state; Ink only renders the translated event stream.
+ * conversation state; Ink only renders the translated event stream. Provider
+ * credentials are injected into the ModelRuntime for this process only.
  */
-export const createPiAdapter = (cwd = process.cwd()): PiChatModelAdapter => {
+export const createPiAdapter = (
+  configuration: PiConfiguration,
+  cwd = process.cwd(),
+): PiChatModelAdapter => {
   let liveSession: AgentSession | undefined;
   let opening: Promise<AgentSession> | undefined;
   let disposed = false;
@@ -202,10 +206,21 @@ export const createPiAdapter = (cwd = process.cwd()): PiChatModelAdapter => {
     if (liveSession) return liveSession;
     if (!opening) {
       opening = (async () => {
-        const modelRuntime = await ModelRuntime.create();
+        const { agentDir, modelRuntime, model } = await createPiModelRuntime(configuration);
+        const settingsManager = SettingsManager.inMemory();
+        const resourceLoader = new DefaultResourceLoader({
+          cwd,
+          agentDir,
+          settingsManager,
+        });
+        await resourceLoader.reload();
         const { session } = await createAgentSession({
           cwd,
+          agentDir,
           modelRuntime,
+          model,
+          resourceLoader,
+          settingsManager,
           sessionManager: SessionManager.inMemory(cwd),
         });
         liveSession = session;
