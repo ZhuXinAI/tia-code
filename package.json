@@ -11,6 +11,7 @@
   "dependencies": {
     "@assistant-ui/react-ink": "latest",
     "@assistant-ui/react-ink-markdown": "latest",
+    "assistant-cloud": "^0.1.35",
     "ink": "^7.1.0",
     "react": "^19.2.7"
   },

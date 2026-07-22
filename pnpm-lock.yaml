@@ -10,10 +10,13 @@ importers:
     dependencies:
       '@assistant-ui/react-ink':
         specifier: latest
-        version: 0.0.32(@types/react@19.2.17)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)
+        version: 0.0.32(@types/react@19.2.17)(assistant-cloud@0.1.35)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)
       '@assistant-ui/react-ink-markdown':
         specifier: latest
-        version: 0.0.31(@assistant-ui/react-ink@0.0.32(@types/react@19.2.17)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8))(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(zustand@5.0.14(@types/react@19.2.17)(react@19.2.8))
+        version: 0.0.31(@assistant-ui/react-ink@0.0.32(@types/react@19.2.17)(assistant-cloud@0.1.35)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8))(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(assistant-cloud@0.1.35)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(zustand@5.0.14(@types/react@19.2.17)(react@19.2.8))
+      assistant-cloud:
+        specifier: ^0.1.35
+        version: 0.1.35
       ink:
         specifier: ^7.1.0
         version: 7.1.1(@types/react@19.2.17)(react@19.2.8)
@@ -399,6 +402,9 @@ packages:
     resolution: {integrity: sha512-4Dj6M28JB+oAH8kFkTLUo+a2jwOFkuqb3yucU0CANcRRUbxS0cP0nZYCGjcc3BNXwRIsUVmDGgzawme7zvJHvg==}
     engines: {node: '>=12'}
 
+  assistant-cloud@0.1.35:
+    resolution: {integrity: sha512-SiMvAXalCwM9GcnyIiJfQTZda00E2VE/jZWqSdX4WPxQyHeVNK7uBzw3AaFpBQT1vXbS1UYdKVlZdUJ3vRftCg==}
+
   assistant-stream@0.3.26:
     resolution: {integrity: sha512-qjYrK9c5Mpuz3U6oG6YDpBbiICANhNTN86MLNcI47iRYXalqvCZL2Tzmh9pQcGWDX3PltSJtGIFAIHdRDXIg+A==}
     peerDependencies:
@@ -669,7 +675,7 @@ snapshots:
       ansi-styles: 6.2.3
       is-fullwidth-code-point: 5.1.0
 
-  '@assistant-ui/core@0.2.21(@assistant-ui/store@0.2.20(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8))(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8)(zustand@5.0.14(@types/react@19.2.17)(react@19.2.8))':
+  '@assistant-ui/core@0.2.21(@assistant-ui/store@0.2.20(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8))(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(assistant-cloud@0.1.35)(react@19.2.8)(zustand@5.0.14(@types/react@19.2.17)(react@19.2.8))':
     dependencies:
       '@assistant-ui/store': 0.2.20(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8)
       '@assistant-ui/tap': 0.9.4(@types/react@19.2.17)(react@19.2.8)
@@ -677,21 +683,22 @@ snapshots:
       nanoid: 6.0.0
     optionalDependencies:
       '@types/react': 19.2.17
+      assistant-cloud: 0.1.35
       react: 19.2.8
       zustand: 5.0.14(@types/react@19.2.17)(react@19.2.8)
     transitivePeerDependencies:
       - ioredis
       - redis
 
-  '@assistant-ui/react-ink-markdown@0.0.31(@assistant-ui/react-ink@0.0.32(@types/react@19.2.17)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8))(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(zustand@5.0.14(@types/react@19.2.17)(react@19.2.8))':
+  '@assistant-ui/react-ink-markdown@0.0.31(@assistant-ui/react-ink@0.0.32(@types/react@19.2.17)(assistant-cloud@0.1.35)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8))(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(assistant-cloud@0.1.35)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)(zustand@5.0.14(@types/react@19.2.17)(react@19.2.8))':
     dependencies:
-      '@assistant-ui/core': 0.2.21(@assistant-ui/store@0.2.20(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8))(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8)(zustand@5.0.14(@types/react@19.2.17)(react@19.2.8))
+      '@assistant-ui/core': 0.2.21(@assistant-ui/store@0.2.20(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8))(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(assistant-cloud@0.1.35)(react@19.2.8)(zustand@5.0.14(@types/react@19.2.17)(react@19.2.8))
       '@assistant-ui/store': 0.2.20(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8)
       ink: 7.1.1(@types/react@19.2.17)(react@19.2.8)
       markdansi: 0.3.2
       react: 19.2.8
     optionalDependencies:
-      '@assistant-ui/react-ink': 0.0.32(@types/react@19.2.17)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)
+      '@assistant-ui/react-ink': 0.0.32(@types/react@19.2.17)(assistant-cloud@0.1.35)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)
       '@types/react': 19.2.17
     transitivePeerDependencies:
       - '@assistant-ui/tap'
@@ -700,9 +707,9 @@ snapshots:
       - redis
       - zustand
 
-  '@assistant-ui/react-ink@0.0.32(@types/react@19.2.17)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)':
+  '@assistant-ui/react-ink@0.0.32(@types/react@19.2.17)(assistant-cloud@0.1.35)(ink@7.1.1(@types/react@19.2.17)(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@assistant-ui/core': 0.2.21(@assistant-ui/store@0.2.20(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8))(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8)(zustand@5.0.14(@types/react@19.2.17)(react@19.2.8))
+      '@assistant-ui/core': 0.2.21(@assistant-ui/store@0.2.20(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8))(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(assistant-cloud@0.1.35)(react@19.2.8)(zustand@5.0.14(@types/react@19.2.17)(react@19.2.8))
       '@assistant-ui/store': 0.2.20(@assistant-ui/tap@0.9.4(@types/react@19.2.17)(react@19.2.8))(@types/react@19.2.17)(react@19.2.8)
       '@assistant-ui/tap': 0.9.4(@types/react@19.2.17)(react@19.2.8)
       assistant-stream: 0.3.26
@@ -886,6 +893,13 @@ snapshots:
   ansi-regex@6.2.2: {}
 
   ansi-styles@6.2.3: {}
+
+  assistant-cloud@0.1.35:
+    dependencies:
+      assistant-stream: 0.3.26
+    transitivePeerDependencies:
+      - ioredis
+      - redis
 
   assistant-stream@0.3.26:
     dependencies:
