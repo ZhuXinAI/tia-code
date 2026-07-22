@@ -80,6 +80,15 @@ export const piConfigurationPath = (): string => {
 
 export const piAgentDirectory = (): string => join(dirname(piConfigurationPath()), "pi");
 
+export const piSessionDirectory = (): string => join(piAgentDirectory(), "sessions");
+
+export const ensurePiSessionDirectory = async (): Promise<string> => {
+  const directory = piSessionDirectory();
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await chmod(directory, 0o700).catch(() => undefined);
+  return directory;
+};
+
 const normalizeConfiguration = (input: unknown): PiConfiguration | null => {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const value = input as Record<string, unknown>;

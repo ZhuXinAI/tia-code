@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { chmod } from "node:fs/promises";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -11,11 +13,22 @@ import type {
   ChatModelRunOptions,
   ChatModelRunResult,
   ThreadAssistantMessagePart,
+  ThreadMessageLike,
 } from "@assistant-ui/react-ink";
-import { createPiModelRuntime, type PiConfiguration } from "./pi-configuration.js";
+import {
+  createPiModelRuntime,
+  ensurePiSessionDirectory,
+  type PiConfiguration,
+} from "./pi-configuration.js";
+import type { PiSessionExitSummary } from "./session-exit.js";
 
 type PiChatModelAdapter = ChatModelAdapter & {
-  dispose(): Promise<void>;
+  initialize(): Promise<readonly ThreadMessageLike[]>;
+  dispose(): Promise<PiSessionExitSummary | undefined>;
+};
+
+type PiAdapterOptions = {
+  resumeSessionId?: string;
 };
 
 class AsyncQueue<T> {
@@ -207,6 +220,124 @@ const lastUserText = (messages: ChatModelRunOptions["messages"]): string => {
     .trim();
 };
 
+type TranscriptToolCall = {
+  type: "tool-call";
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, never>;
+  argsText: string;
+  result?: unknown;
+  isError?: boolean;
+};
+
+type TranscriptPart =
+  | { type: "text"; text: string }
+  | { type: "reasoning"; text: string }
+  | TranscriptToolCall;
+
+const transcriptStatus = (stopReason: string): NonNullable<ThreadMessageLike["status"]> => {
+  if (stopReason === "error") return { type: "incomplete", reason: "error" };
+  if (stopReason === "aborted") return { type: "incomplete", reason: "cancelled" };
+  return { type: "complete", reason: stopReason === "stop" ? "stop" : "unknown" };
+};
+
+const piContentText = (content: readonly unknown[]): string =>
+  content
+    .map((part) => {
+      if (isRecord(part) && part.type === "text" && typeof part.text === "string") {
+        return part.text;
+      }
+      if (isRecord(part) && part.type === "image") return "[image]";
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+const transcriptFrom = (session: AgentSession): ThreadMessageLike[] => {
+  const messages: ThreadMessageLike[] = [];
+  const toolCalls = new Map<string, TranscriptToolCall>();
+
+  for (const [messageIndex, message] of session.state.messages.entries()) {
+    if (message.role === "user") {
+      messages.push({
+        id: `pi-user-${message.timestamp}-${messageIndex}`,
+        role: "user",
+        content:
+          typeof message.content === "string"
+            ? message.content
+            : piContentText(message.content),
+        createdAt: new Date(message.timestamp),
+      });
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      const content: TranscriptPart[] = [];
+      for (const part of message.content) {
+        if (part.type === "text" && part.text) {
+          content.push({ type: "text", text: part.text });
+          continue;
+        }
+        if (part.type === "thinking" && part.thinking) {
+          content.push({ type: "reasoning", text: part.thinking });
+          continue;
+        }
+        if (part.type === "toolCall") {
+          const toolCall: TranscriptToolCall = {
+            type: "tool-call",
+            toolCallId: part.id,
+            toolName: part.name,
+            args: toToolArgs(part.arguments),
+            argsText: stringFromUnknown(part.arguments),
+          };
+          toolCalls.set(part.id, toolCall);
+          content.push(toolCall);
+        }
+      }
+      messages.push({
+        id: `pi-assistant-${message.timestamp}-${messageIndex}`,
+        role: "assistant",
+        content,
+        createdAt: new Date(message.timestamp),
+        status: transcriptStatus(message.stopReason),
+      });
+      continue;
+    }
+
+    if (message.role === "toolResult") {
+      const toolCall = toolCalls.get(message.toolCallId);
+      if (toolCall) {
+        toolCall.result = message.details ?? piContentText(message.content);
+        toolCall.isError = message.isError;
+      }
+    }
+  }
+
+  return messages;
+};
+
+const createSessionManager = async (
+  cwd: string,
+  resumeSessionId: string | undefined,
+): Promise<SessionManager> => {
+  const sessionDirectory = await ensurePiSessionDirectory();
+  if (!resumeSessionId) return SessionManager.create(cwd, sessionDirectory);
+
+  const session = (await SessionManager.list(cwd, sessionDirectory)).find(
+    (candidate) => candidate.id === resumeSessionId,
+  );
+  if (!session) {
+    throw new Error(`No saved Pi session with ID "${resumeSessionId}" exists for this directory.`);
+  }
+  return SessionManager.open(session.path, sessionDirectory, cwd);
+};
+
+const reasoningTokensFor = (session: AgentSession): number =>
+  session.sessionManager.getEntries().reduce((total, entry) => {
+    if (entry.type !== "message" || entry.message.role !== "assistant") return total;
+    return total + (entry.message.usage.reasoning ?? 0);
+  }, 0);
+
 /**
  * Bridges one in-process Pi SDK session to assistant-ui's local runtime.
  * Pi owns model selection, its workspace-aware resource loader, tools, and
@@ -216,10 +347,12 @@ const lastUserText = (messages: ChatModelRunOptions["messages"]): string => {
 export const createPiAdapter = (
   configuration: PiConfiguration,
   cwd = process.cwd(),
+  options: PiAdapterOptions = {},
 ): PiChatModelAdapter => {
   let liveSession: AgentSession | undefined;
   let opening: Promise<AgentSession> | undefined;
   let disposed = false;
+  let closing: Promise<PiSessionExitSummary | undefined> | undefined;
 
   const ensureSession = async (): Promise<AgentSession> => {
     if (disposed) throw new Error("Pi session has been closed");
@@ -234,6 +367,7 @@ export const createPiAdapter = (
           settingsManager,
         });
         await resourceLoader.reload();
+        const sessionManager = await createSessionManager(cwd, options.resumeSessionId);
         const { session } = await createAgentSession({
           cwd,
           agentDir,
@@ -241,7 +375,7 @@ export const createPiAdapter = (
           model,
           resourceLoader,
           settingsManager,
-          sessionManager: SessionManager.inMemory(cwd),
+          sessionManager,
         });
         liveSession = session;
         return session;
@@ -252,19 +386,46 @@ export const createPiAdapter = (
     return opening;
   };
 
-  const dispose = async (): Promise<void> => {
-    if (disposed) return;
+  const initialize = async (): Promise<readonly ThreadMessageLike[]> => {
+    const session = await ensureSession();
+    return transcriptFrom(session);
+  };
+
+  const dispose = (): Promise<PiSessionExitSummary | undefined> => {
+    if (closing) return closing;
     disposed = true;
 
-    const session = liveSession ?? (opening ? await opening.catch(() => undefined) : undefined);
-    liveSession = undefined;
-    if (!session) return;
+    closing = (async () => {
+      const session = liveSession ?? (opening ? await opening.catch(() => undefined) : undefined);
+      liveSession = undefined;
+      if (!session) return undefined;
 
-    await session.abort().catch(() => undefined);
-    session.dispose();
+      try {
+        await session.abort().catch(() => undefined);
+        const stats = session.getSessionStats();
+        const sessionFile = stats.sessionFile;
+        const isResumable = Boolean(
+          stats.assistantMessages > 0 && sessionFile && existsSync(sessionFile),
+        );
+        if (isResumable && sessionFile) {
+          await chmod(sessionFile, 0o600).catch(() => undefined);
+        }
+        const reasoningTokens = reasoningTokensFor(session);
+        return {
+          stats,
+          reasoningTokens: reasoningTokens > 0 ? reasoningTokens : undefined,
+          resumeSessionId: isResumable ? stats.sessionId : undefined,
+        };
+      } finally {
+        session.dispose();
+      }
+    })();
+
+    return closing;
   };
 
   return {
+    initialize,
     dispose,
     async *run(options) {
       const prompt = lastUserText(options.messages);

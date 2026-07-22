@@ -22,5 +22,7 @@ await build({
   ignoreAnnotations: true,
 });
 
-const child = spawn("node", [outfile], { stdio: "inherit" });
+const args = process.argv.slice(2);
+const childArgs = args[0] === "--" ? args.slice(1) : args;
+const child = spawn("node", [outfile, ...childArgs], { stdio: "inherit" });
 child.on("exit", (code) => process.exit(code ?? 0));
