@@ -1,15 +1,12 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Box, Text } from "ink";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
   StatusBarPrimitive,
-  Tools,
-  useAui,
 } from "@assistant-ui/react-ink";
 import { Thread } from "./components/thread.js";
-import { createScriptedAdapter, MODEL_NAME } from "./scripted-adapter.js";
-import toolkit from "./tools.js";
+import { createPiAdapter, MODEL_NAME } from "./pi-adapter.js";
 
 const StatusBar = () => (
   <StatusBarPrimitive.Root>
@@ -21,20 +18,23 @@ const StatusBar = () => (
 );
 
 export const App = () => {
-  const adapter = useMemo(() => createScriptedAdapter(), []);
+  const adapter = useMemo(() => createPiAdapter(), []);
+  useEffect(
+    () => () => {
+      void adapter.dispose();
+    },
+    [adapter],
+  );
   const runtime = useLocalRuntime(adapter);
-  const aui = useAui({
-    tools: Tools({ toolkit }),
-  });
 
   return (
-    <AssistantRuntimeProvider aui={aui} runtime={runtime}>
+    <AssistantRuntimeProvider runtime={runtime}>
       <Box flexDirection="column" padding={1}>
         <Box>
           <Text bold color="cyan">
-            demo-agent
+            TIA Code
           </Text>
-          <Text dimColor>{"  ~/acme-app"}</Text>
+          <Text dimColor>{"  "}{process.cwd()}</Text>
         </Box>
         <StatusBar />
         <Box marginTop={1}>

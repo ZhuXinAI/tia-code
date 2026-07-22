@@ -9,6 +9,15 @@ import {
 } from "@assistant-ui/react-ink";
 import { MarkdownText } from "@assistant-ui/react-ink-markdown";
 
+const formatToolResult = (result: unknown): string => {
+  if (typeof result === "string") return result;
+  try {
+    return JSON.stringify(result) ?? String(result);
+  } catch {
+    return String(result);
+  }
+};
+
 const UserMessage = () => (
   <MessagePrimitive.Root>
     <Box marginBottom={1}>
@@ -26,7 +35,7 @@ const AssistantMessage = () => (
   <MessagePrimitive.Root>
     <Box flexDirection="column" marginBottom={1}>
       <Text bold color="blue">
-        AI:
+        Pi:
       </Text>
       <MessagePrimitive.Content
         renderText={({ part }) => <MarkdownText text={part.text} />}
@@ -34,6 +43,19 @@ const AssistantMessage = () => (
           <Text dimColor italic>
             {part.text}
           </Text>
+        )}
+        renderToolCall={({ part }) => (
+          <Box flexDirection="column" marginTop={1}>
+            <Text color={part.isError ? "red" : "cyan"}>
+              {part.isError ? "×" : "→"} {part.toolName}
+              {part.result === undefined ? "  running" : part.isError ? "  failed" : "  done"}
+            </Text>
+            {part.result !== undefined ? (
+              <Text dimColor wrap="truncate">
+                {formatToolResult(part.result)}
+              </Text>
+            ) : null}
+          </Box>
         )}
       />
       <LiveChecklist title="Plan" showProgress marginTop={1} />
@@ -60,10 +82,13 @@ export const Thread = () => {
       <ThreadPrimitive.Empty>
         <Box flexDirection="column" marginBottom={1}>
           <Text>
-            Working in this project. <Text color="yellow">fetchUser()</Text> is
-            flaky in prod and has no retry logic.
+            TIA Code is ready in this project with <Text color="yellow">Pi</Text> as
+            its coding harness.
           </Text>
-          <Text dimColor>{'  try: "make fetchUser retry on failure"'}</Text>
+          <Text dimColor>
+            Pi reads this workspace and can use its coding tools through your configured model.
+          </Text>
+          <Text dimColor>{'  try: "inspect this project and explain its structure"'}</Text>
         </Box>
       </ThreadPrimitive.Empty>
 
@@ -80,7 +105,7 @@ export const Thread = () => {
         <ComposerPrimitive.Input
           submitOnEnter
           multiLine
-          placeholder="Type a message... (Enter to send)"
+          placeholder="Ask Pi to inspect or change this project... (Enter to send)"
           autoFocus
         />
       </Box>

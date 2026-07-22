@@ -12,7 +12,10 @@ await build({
   platform: "node",
   format: "esm",
   outfile,
-  external: ["react", "react/*", "ink", "ink/*"],
+  // Keep runtime dependencies as Node ESM imports. Pi includes optional and
+  // native-adjacent resources that must be resolved from node_modules rather
+  // than folded into this small development entry point.
+  packages: "external",
   jsx: "automatic",
   jsxImportSource: "react",
   logLevel: "warning",
