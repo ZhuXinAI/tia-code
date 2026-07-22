@@ -41,7 +41,7 @@
     "clean": "node scripts/clean.mjs",
     "build": "npm run clean && tsc",
     "start": "node dist/index.js",
-    "test": "node --import tsx/esm --test test/cli.test.ts",
+    "test": "node --import tsx/esm --test test/*.test.ts",
     "prepack": "npm run build && npm run test"
   },
   "dependencies": {
@@ -49,6 +49,7 @@
     "@assistant-ui/react-ink": "latest",
     "@assistant-ui/react-ink-markdown": "latest",
     "@earendil-works/pi-coding-agent": "0.80.8",
+    "ai": "^7.0.34",
     "assistant-cloud": "^0.1.35",
     "ink": "^7.1.0",
     "react": "^19.2.7"

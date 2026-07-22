@@ -15,7 +15,7 @@ export const formatTiaSessionExitSummary = (
 
   const { input, output, cacheRead, cacheWrite } = summary.stats.tokens;
   const cached = cacheRead + cacheWrite;
-  // Match Codex's exit display: cache activity is shown separately from the
+  // Cache activity is shown separately from the
   // request/response total instead of being folded into the headline number.
   const total = input + output;
   const inputText = `input=${formatTokens(input)}${

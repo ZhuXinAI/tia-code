@@ -21,7 +21,7 @@ type SlashComposerProps = {
 
 const COMMANDS: readonly SlashCommand[] = [
   { id: "model", description: "Choose the TIA provider and model" },
-  { id: "mcp", description: "List and manage Codex MCP servers" },
+  { id: "mcp", description: "List and manage TIA MCP servers" },
   { id: "skills", description: "List project skills from .agents/skills" },
 ];
 

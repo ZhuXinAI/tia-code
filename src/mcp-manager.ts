@@ -1,47 +1,34 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { createMCPClient, type CallToolResult, type MCPClient } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import {
+  isTiaMcpServerName,
+  loadTiaMcpConfiguration,
+  removeTiaMcpServer,
+  saveTiaMcpServer,
+  type TiaMcpServer,
+  updateTiaMcpServer,
+} from "./mcp-configuration.js";
+import { createMcpOAuthProvider, loginToMcpServer } from "./mcp-oauth.js";
 
 type UnknownRecord = Record<string, unknown>;
 
-type StdioTransport = {
-  type: "stdio";
-  command: string;
-  args: string[];
-  env: Record<string, string>;
-  envVars: string[];
-  cwd?: string;
+type ConnectedMcpServer = {
+  client: MCPClient;
+  tools: McpToolSummary[];
 };
 
-type HttpTransport = {
-  type: "streamable_http";
-  url: string;
-  bearerTokenEnvVar?: string;
-  headers: Record<string, string>;
-  envHeaders: Record<string, string>;
-};
-
-type UnsupportedTransport = {
-  type: "unsupported";
-};
-
-type CodexMcpServer = {
-  name: string;
-  enabled: boolean;
-  authStatus: string;
-  transport: StdioTransport | HttpTransport | UnsupportedTransport;
-  startupTimeoutMs: number;
-  toolTimeoutMs: number;
+type McpClientAttempt = {
+  client: Promise<MCPClient>;
+  abort: () => Promise<void>;
 };
 
 export type McpServerSummary = {
   name: string;
-  enabled: boolean;
-  transport: "stdio" | "streamable_http" | "unsupported";
+  transport: "stdio" | "http" | "sse";
   endpoint?: string;
   authStatus: string;
-  connection: "connected" | "disconnected" | "unavailable";
+  connection: "connected" | "disconnected";
 };
 
 export type McpToolSummary = {
@@ -57,104 +44,17 @@ export type McpCommandResult = {
   tone?: "success" | "error" | "info";
 };
 
-type ConnectedMcpServer = {
-  client: MCPClient;
-  tools: McpToolSummary[];
-};
-
-type McpClientAttempt = {
-  client: Promise<MCPClient>;
-  abort: () => Promise<void>;
+export type McpManagerOptions = {
+  configurationPath?: string;
 };
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 12_000;
 const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
-const MAX_COMMAND_OUTPUT_BYTES = 1_000_000;
 const MAX_TOOL_OUTPUT_CHARS = 48_000;
+const OAUTH_REAUTH_REDIRECT_URL = "http://127.0.0.1:0/oauth/callback";
 
 const isRecord = (value: unknown): value is UnknownRecord =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
-
-const stringValue = (value: unknown): string | undefined =>
-  typeof value === "string" && value.trim() ? value : undefined;
-
-const stringList = (value: unknown): string[] =>
-  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-
-const stringRecord = (value: unknown): Record<string, string> => {
-  if (!isRecord(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-  );
-};
-
-const timeoutMs = (value: unknown, fallback: number): number =>
-  typeof value === "number" && Number.isFinite(value) && value > 0
-    ? Math.min(Math.round(value * 1_000), 120_000)
-    : fallback;
-
-const parseTransport = (
-  value: unknown,
-): StdioTransport | HttpTransport | UnsupportedTransport => {
-  if (!isRecord(value)) return { type: "unsupported" };
-
-  if (value.type === "stdio") {
-    const command = stringValue(value.command);
-    if (!command) return { type: "unsupported" };
-    return {
-      type: "stdio",
-      command,
-      args: stringList(value.args),
-      env: stringRecord(value.env),
-      envVars: stringList(value.env_vars),
-      cwd: stringValue(value.cwd),
-    };
-  }
-
-  if (value.type === "streamable_http") {
-    const url = stringValue(value.url);
-    if (!url) return { type: "unsupported" };
-    return {
-      type: "streamable_http",
-      url,
-      bearerTokenEnvVar: stringValue(value.bearer_token_env_var),
-      headers: stringRecord(value.http_headers),
-      envHeaders: stringRecord(value.env_http_headers),
-    };
-  }
-
-  return { type: "unsupported" };
-};
-
-const parseMcpServers = (value: unknown): CodexMcpServer[] => {
-  if (!Array.isArray(value)) throw new Error("Codex returned an invalid MCP server list.");
-
-  return value.flatMap((entry) => {
-    if (!isRecord(entry)) return [];
-    const name = stringValue(entry.name);
-    if (!name) return [];
-    return [
-      {
-        name,
-        enabled: entry.enabled === true,
-        authStatus: stringValue(entry.auth_status) ?? "unknown",
-        transport: parseTransport(entry.transport),
-        startupTimeoutMs: timeoutMs(entry.startup_timeout_sec, DEFAULT_STARTUP_TIMEOUT_MS),
-        toolTimeoutMs: timeoutMs(entry.tool_timeout_sec, DEFAULT_TOOL_TIMEOUT_MS),
-      },
-    ];
-  });
-};
-
-const safeEndpoint = (transport: CodexMcpServer["transport"]): string | undefined => {
-  if (transport.type !== "streamable_http") return undefined;
-  try {
-    const url = new URL(transport.url);
-    return `${url.origin}${url.pathname}`;
-  } catch {
-    return "configured URL";
-  }
-};
 
 const messageFromUnknown = (error: unknown): string =>
   error instanceof Error && error.message ? error.message : "The operation failed.";
@@ -162,13 +62,37 @@ const messageFromUnknown = (error: unknown): string =>
 const truncate = (value: string, maxLength: number): string =>
   value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
 
-const environmentForCodexMcpCommand = (): NodeJS.ProcessEnv => {
-  const environment = { ...process.env };
-  // TIA never needs npm publish credentials to inspect or manage Codex MCP
-  // configuration. Keep release tokens out of this child-process boundary.
-  delete environment.NPM_TOKEN;
-  delete environment.NODE_AUTH_TOKEN;
-  return environment;
+const isEnvironmentVariable = (value: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+
+const readMcpUrl = (value: string): string => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("unsupported protocol");
+    }
+    return url.href;
+  } catch {
+    throw new Error("MCP URLs must use http:// or https://.");
+  }
+};
+
+const safeEndpoint = (server: TiaMcpServer): string | undefined => {
+  if (server.transport.type === "stdio") return undefined;
+  try {
+    const url = new URL(server.transport.url);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return "configured endpoint";
+  }
+};
+
+const authenticationStatus = (server: TiaMcpServer): string => {
+  if (server.transport.type !== "stdio" && server.transport.bearerTokenEnvVar) {
+    return "environment token";
+  }
+  if (server.oauth?.tokens) return "OAuth signed in";
+  if (server.oauth?.clientInformation) return "OAuth sign-in incomplete";
+  return "no credentials configured";
 };
 
 const serializeResult = (result: unknown): string => {
@@ -197,61 +121,6 @@ const serializeResult = (result: unknown): string => {
   return truncate(`${content.join("\n")}${structured}`.trim() || "(no output)", MAX_TOOL_OUTPUT_CHARS);
 };
 
-class CodexMcpRunner {
-  private readonly active = new Set<ChildProcess>();
-  private disposed = false;
-
-  async run(args: readonly string[]): Promise<string> {
-    if (this.disposed) throw new Error("TIA's MCP command runner has closed.");
-
-    return new Promise<string>((resolve, reject) => {
-      const child = spawn("codex", ["mcp", ...args], {
-        cwd: process.cwd(),
-        env: environmentForCodexMcpCommand(),
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      this.active.add(child);
-
-      let output = "";
-      const collect = (chunk: Buffer | string) => {
-        if (output.length >= MAX_COMMAND_OUTPUT_BYTES) return;
-        output += chunk.toString().slice(0, MAX_COMMAND_OUTPUT_BYTES - output.length);
-      };
-      child.stdout?.on("data", collect);
-      // Drain stderr without exposing possibly sensitive CLI echoes in the TUI.
-      child.stderr?.on("data", () => undefined);
-
-      const finish = () => this.active.delete(child);
-      child.once("error", () => {
-        finish();
-        reject(new Error("TIA could not start the Codex MCP command."));
-      });
-      child.once("close", (code) => {
-        finish();
-        if (code === 0) {
-          resolve(output);
-          return;
-        }
-        reject(new Error("The Codex MCP command did not complete successfully."));
-      });
-    });
-  }
-
-  dispose(): void {
-    this.disposed = true;
-    for (const child of this.active) {
-      if (child.exitCode === null) child.kill("SIGTERM");
-    }
-    this.active.clear();
-  }
-}
-
-const isOAuthOnly = (server: CodexMcpServer): boolean =>
-  server.authStatus === "o_auth" || server.authStatus === "not_logged_in";
-
-const hasHeader = (headers: Record<string, string>, name: string): boolean =>
-  Object.keys(headers).some((key) => key.toLowerCase() === name.toLowerCase());
-
 const promiseWithTimeout = async <T>(
   promise: Promise<T>,
   timeout: number,
@@ -279,40 +148,115 @@ const promiseWithTimeout = async <T>(
   }
 };
 
-/**
- * Maps Codex's configured transports to AI SDK MCP clients. Connection is
- * explicit: a configured server is not made available to the coding agent
- * until the user chooses `/mcp connect <name>`.
- */
+const takeOptionValue = (args: readonly string[], index: number, option: string): string => {
+  const value = args[index + 1];
+  if (!value || value === "--") throw new Error(`${option} needs a value.`);
+  return value;
+};
+
+export const parseMcpAddArguments = (args: readonly string[]): TiaMcpServer => {
+  const name = args[0];
+  if (!name) throw new Error("Usage: /mcp add <name> --url <url>");
+  if (!isTiaMcpServerName(name)) {
+    throw new Error("MCP server names may use letters, numbers, dots, underscores, and hyphens.");
+  }
+
+  const separator = args.indexOf("--");
+  const hasRemoteTransport = args.includes("--url") || args.includes("--sse");
+  if (hasRemoteTransport) {
+    if (separator !== -1) {
+      throw new Error("Remote MCP servers do not take a command after --.");
+    }
+    let transport: "http" | "sse" | undefined;
+    let url: string | undefined;
+    let bearerTokenEnvVar: string | undefined;
+    for (let index = 1; index < args.length; index += 1) {
+      const option = args[index];
+      if (option === "--url" || option === "--sse") {
+        if (transport) throw new Error("Choose one remote transport: --url or --sse.");
+        transport = option === "--url" ? "http" : "sse";
+        url = readMcpUrl(takeOptionValue(args, index, option));
+        index += 1;
+        continue;
+      }
+      if (option === "--bearer-token-env") {
+        if (bearerTokenEnvVar) throw new Error("--bearer-token-env can only be supplied once.");
+        bearerTokenEnvVar = takeOptionValue(args, index, option);
+        if (!isEnvironmentVariable(bearerTokenEnvVar)) {
+          throw new Error("--bearer-token-env must be an environment-variable name.");
+        }
+        index += 1;
+        continue;
+      }
+      throw new Error(`Unknown MCP add option: ${option}`);
+    }
+    if (!transport || !url) throw new Error("Specify either --url <url> or --sse <url>.");
+    return {
+      name,
+      transport: { type: transport, url, ...(bearerTokenEnvVar ? { bearerTokenEnvVar } : {}) },
+    };
+  }
+
+  if (separator === -1) {
+    throw new Error("Usage: /mcp add <name> [--env <NAME>]... -- <command> [args...]");
+  }
+
+  const envVars: string[] = [];
+  let cwd: string | undefined;
+  for (let index = 1; index < separator; index += 1) {
+    const option = args[index];
+    if (option === "--env") {
+      const envVar = takeOptionValue(args, index, option);
+      if (!isEnvironmentVariable(envVar)) {
+        throw new Error("--env must be an environment-variable name.");
+      }
+      if (!envVars.includes(envVar)) envVars.push(envVar);
+      index += 1;
+      continue;
+    }
+    if (option === "--cwd") {
+      if (cwd) throw new Error("--cwd can only be supplied once.");
+      cwd = takeOptionValue(args, index, option);
+      index += 1;
+      continue;
+    }
+    throw new Error(`Unknown MCP add option: ${option}`);
+  }
+
+  const command = args[separator + 1];
+  if (!command) throw new Error("Specify a command after --.");
+  return {
+    name,
+    transport: {
+      type: "stdio",
+      command,
+      args: args.slice(separator + 2),
+      envVars,
+      ...(cwd ? { cwd } : {}),
+    },
+  };
+};
+
 export class McpManager {
-  private readonly runner = new CodexMcpRunner();
+  private readonly configurationPath: string | undefined;
   private readonly connections = new Map<string, ConnectedMcpServer>();
   private disposed = false;
 
-  private async configuredServers(): Promise<CodexMcpServer[]> {
-    const output = await this.runner.run(["list", "--json"]);
-    try {
-      return parseMcpServers(JSON.parse(output));
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        throw new Error("Codex returned unreadable MCP configuration.");
-      }
-      throw error;
-    }
+  constructor(options: McpManagerOptions = {}) {
+    this.configurationPath = options.configurationPath;
   }
 
-  private summary(server: CodexMcpServer): McpServerSummary {
+  private async configuredServers(): Promise<TiaMcpServer[]> {
+    return (await loadTiaMcpConfiguration(this.configurationPath)).servers;
+  }
+
+  private summary(server: TiaMcpServer): McpServerSummary {
     return {
       name: server.name,
-      enabled: server.enabled,
       transport: server.transport.type,
-      endpoint: safeEndpoint(server.transport),
-      authStatus: server.authStatus,
-      connection: this.connections.has(server.name)
-        ? "connected"
-        : isOAuthOnly(server)
-          ? "unavailable"
-          : "disconnected",
+      endpoint: safeEndpoint(server),
+      authStatus: authenticationStatus(server),
+      connection: this.connections.has(server.name) ? "connected" : "disconnected",
     };
   }
 
@@ -327,27 +271,29 @@ export class McpManager {
     return server ? this.summary(server) : undefined;
   }
 
-  private async resolveServer(name: string): Promise<CodexMcpServer> {
+  private async resolveServer(name: string): Promise<TiaMcpServer> {
     const server = (await this.configuredServers()).find((candidate) => candidate.name === name);
-    if (!server) throw new Error(`No Codex MCP server named "${name}" is configured.`);
+    if (!server) throw new Error(`No TIA MCP server named "${name}" is configured.`);
     return server;
   }
 
-  private createClient(server: CodexMcpServer): McpClientAttempt {
-    if (server.transport.type === "unsupported") {
-      throw new Error(`TIA does not support the configured transport for "${server.name}".`);
-    }
-    if (isOAuthOnly(server)) {
-      throw new Error(
-        `"${server.name}" uses Codex OAuth. TIA cannot reuse Codex's OAuth credential store; configure a bearer token or another supported transport for this app.`,
-      );
-    }
-
+  private createClient(server: TiaMcpServer): McpClientAttempt {
     if (server.transport.type === "stdio") {
-      const env = { ...server.transport.env };
+      const env: Record<string, string> = {};
+      const path = process.env.PATH ?? process.env.Path;
+      if (path) env.PATH = path;
+      if (process.platform === "win32") {
+        for (const name of ["ComSpec", "PATHEXT", "SystemRoot"]) {
+          const value = process.env[name];
+          if (value) env[name] = value;
+        }
+      }
       for (const name of server.transport.envVars) {
         const value = process.env[name];
-        if (value !== undefined && env[name] === undefined) env[name] = value;
+        if (value === undefined) {
+          throw new Error(`"${server.name}" needs ${name} in TIA Code's environment.`);
+        }
+        env[name] = value;
       }
       const transport = new Experimental_StdioMCPTransport({
         command: server.transport.command,
@@ -362,11 +308,7 @@ export class McpManager {
       };
     }
 
-    const headers = { ...server.transport.headers };
-    for (const [header, envName] of Object.entries(server.transport.envHeaders)) {
-      const value = process.env[envName];
-      if (value !== undefined) headers[header] = value;
-    }
+    const headers: Record<string, string> = {};
     if (server.transport.bearerTokenEnvVar) {
       const token = process.env[server.transport.bearerTokenEnvVar];
       if (!token) {
@@ -374,15 +316,25 @@ export class McpManager {
           `"${server.name}" needs ${server.transport.bearerTokenEnvVar} in TIA Code's environment.`,
         );
       }
-      if (!hasHeader(headers, "authorization")) headers.Authorization = `Bearer ${token}`;
+      headers.Authorization = `Bearer ${token}`;
     }
-
+    const authProvider = server.oauth
+      ? createMcpOAuthProvider({
+          serverName: server.name,
+          redirectUrl: server.oauth.redirectUrl ?? OAUTH_REAUTH_REDIRECT_URL,
+          configurationPath: this.configurationPath,
+          onAuthorizationUrl: async () => {
+            throw new Error(`Run /mcp login ${server.name} to complete OAuth sign-in.`);
+          },
+        })
+      : undefined;
     const client = createMCPClient({
       clientName: "tia-code",
       transport: {
-        type: "http",
+        type: server.transport.type,
         url: server.transport.url,
-        headers,
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        ...(authProvider ? { authProvider } : {}),
       },
     });
     return {
@@ -403,21 +355,19 @@ export class McpManager {
     }
 
     const server = await this.resolveServer(name);
-    if (!server.enabled) throw new Error(`"${name}" is disabled in Codex. Enable it before connecting.`);
-
     let client: MCPClient | undefined;
     let attempt: McpClientAttempt | undefined;
     try {
       attempt = this.createClient(server);
       client = await promiseWithTimeout(
         attempt.client,
-        server.startupTimeoutMs,
+        DEFAULT_STARTUP_TIMEOUT_MS,
         `Connecting to "${name}"`,
         (lateClient) => void lateClient.close(),
       );
       const response = await promiseWithTimeout(
-        client.listTools({ options: { timeout: server.toolTimeoutMs } }),
-        server.startupTimeoutMs,
+        client.listTools({ options: { timeout: DEFAULT_TOOL_TIMEOUT_MS } }),
+        DEFAULT_STARTUP_TIMEOUT_MS,
         `Discovering tools for "${name}"`,
       );
       const tools = response.tools.map((tool) => ({
@@ -466,11 +416,10 @@ export class McpManager {
     if (!connection.tools.some((candidate) => candidate.name === tool)) {
       throw new Error(`"${tool}" is not available from connected MCP server "${server}".`);
     }
-    const config = await this.resolveServer(server);
     return connection.client.callTool({
       name: tool,
       arguments: args,
-      options: { signal, timeout: config.toolTimeoutMs },
+      options: { signal, timeout: DEFAULT_TOOL_TIMEOUT_MS },
     });
   }
 
@@ -529,7 +478,7 @@ export class McpManager {
         parameters: {
           type: "object",
           properties: {
-            server: { type: "string", description: "Connected Codex MCP server name" },
+            server: { type: "string", description: "Connected MCP server name" },
             tool: { type: "string", description: "Exact MCP tool name" },
             arguments: {
               type: "object",
@@ -561,20 +510,21 @@ export class McpManager {
   private listResult = async (): Promise<McpCommandResult> => {
     const servers = await this.listServers();
     if (servers.length === 0) {
-      return { title: "MCP servers", lines: ["No Codex MCP servers are configured."], tone: "info" };
+      return { title: "MCP servers", lines: ["No MCP servers are configured for TIA Code."], tone: "info" };
     }
     return {
-      title: "Codex MCP servers",
+      title: "MCP servers",
       lines: servers.map((server) => {
         const location = server.endpoint ? ` · ${server.endpoint}` : "";
-        return `${server.name} · ${server.enabled ? "enabled" : "disabled"} · ${server.transport}${location} · ${server.connection}`;
+        return `${server.name} · ${server.transport}${location} · ${server.authStatus} · ${server.connection}`;
       }),
       tone: "info",
     };
   };
 
   async executeSlashCommand(parts: readonly string[]): Promise<McpCommandResult> {
-    const [action = "list", ...args] = parts;
+    const [rawAction = "list", ...args] = parts;
+    const action = rawAction.toLowerCase();
 
     if (action === "list") return this.listResult();
 
@@ -583,19 +533,16 @@ export class McpManager {
       if (!name || args.length !== 1) {
         return { title: "MCP get", lines: ["Usage: /mcp get <name>"], tone: "error" };
       }
-      // Keep this mapped to Codex's get command while only rendering a redacted summary.
-      await this.runner.run(["get", name, "--json"]);
       const server = await this.getServer(name);
       if (!server) return { title: "MCP get", lines: [`No MCP server named "${name}".`], tone: "error" };
       return {
         title: `MCP · ${server.name}`,
         lines: [
-          `status: ${server.enabled ? "enabled" : "disabled"}`,
           `transport: ${server.transport}`,
           ...(server.endpoint ? [`endpoint: ${server.endpoint}`] : []),
           `authentication: ${server.authStatus}`,
           `connection: ${server.connection}`,
-          "Sensitive environment variables and HTTP headers are intentionally hidden.",
+          "Stored credentials and environment values are intentionally hidden.",
         ],
         tone: "info",
       };
@@ -630,6 +577,25 @@ export class McpManager {
       };
     }
 
+    if (action === "add") {
+      try {
+        const server = parseMcpAddArguments(args);
+        const existing = await this.getServer(server.name);
+        await saveTiaMcpServer(server, this.configurationPath);
+        await this.disconnect(server.name);
+        return {
+          title: "MCP add",
+          lines: [
+            `${existing ? "Updated" : "Added"} "${server.name}" in TIA Code's local MCP configuration.`,
+            `Run /mcp connect ${server.name} to make its tools available in this session.`,
+          ],
+          tone: "success",
+        };
+      } catch (error) {
+        return { title: "MCP add", lines: [messageFromUnknown(error)], tone: "error" };
+      }
+    }
+
     if (action === "remove") {
       const [name, confirmation] = args;
       if (!name || args.length > 2) {
@@ -638,39 +604,56 @@ export class McpManager {
       if (confirmation !== "--confirm") {
         return {
           title: "MCP remove",
-          lines: [`Removing "${name}" changes the shared Codex configuration. Run /mcp remove ${name} --confirm.`],
+          lines: [`Run /mcp remove ${name} --confirm to remove this local MCP configuration.`],
           tone: "error",
         };
       }
-      await this.runner.run(["remove", name]);
+      const removed = await removeTiaMcpServer(name, this.configurationPath);
+      if (!removed) return { title: "MCP remove", lines: [`No MCP server named "${name}".`], tone: "error" };
       await this.disconnect(name);
-      return { title: "MCP remove", lines: [`Removed "${name}" from Codex MCP.`], tone: "success" };
-    }
-
-    if (action === "add") {
-      if (args.length === 0) {
-        return {
-          title: "MCP add",
-          lines: [
-            "Usage: /mcp add <name> --url <url>",
-            "   or: /mcp add <name> -- <command> [args...]",
-          ],
-          tone: "error",
-        };
-      }
-      await this.runner.run(["add", ...args]);
-      return { title: "MCP add", lines: ["Added the MCP server to Codex."], tone: "success" };
-    }
-
-    if (action === "login" || action === "logout") {
-      const name = args[0];
-      if (!name) {
-        return { title: `MCP ${action}`, lines: [`Usage: /mcp ${action} <name>`], tone: "error" };
-      }
-      await this.runner.run([action, ...args]);
       return {
-        title: `MCP ${action}`,
-        lines: [`Codex MCP ${action} completed for "${name}".`],
+        title: "MCP remove",
+        lines: [`Removed "${name}" from TIA Code's local MCP configuration.`],
+        tone: "success",
+      };
+    }
+
+    if (action === "login") {
+      const name = args[0];
+      if (!name || args.length !== 1) {
+        return { title: "MCP login", lines: ["Usage: /mcp login <name>"], tone: "error" };
+      }
+      const server = await this.resolveServer(name);
+      await this.disconnect(name);
+      await loginToMcpServer(server, this.configurationPath);
+      return {
+        title: "MCP login",
+        lines: [
+          `Signed in to "${name}".`,
+          `Run /mcp connect ${name} to make its tools available in this session.`,
+        ],
+        tone: "success",
+      };
+    }
+
+    if (action === "logout") {
+      const name = args[0];
+      if (!name || args.length !== 1) {
+        return { title: "MCP logout", lines: ["Usage: /mcp logout <name>"], tone: "error" };
+      }
+      const updated = await updateTiaMcpServer(
+        name,
+        (server) => {
+          const { oauth: _oauth, ...withoutOAuth } = server;
+          return withoutOAuth;
+        },
+        this.configurationPath,
+      );
+      if (!updated) return { title: "MCP logout", lines: [`No MCP server named "${name}".`], tone: "error" };
+      await this.disconnect(name);
+      return {
+        title: "MCP logout",
+        lines: [`Cleared local OAuth credentials for "${name}".`],
         tone: "success",
       };
     }
@@ -680,7 +663,9 @@ export class McpManager {
       lines: [
         "/mcp · /mcp list · /mcp get <name>",
         "/mcp connect <name> · /mcp disconnect <name>",
-        "/mcp add <name> --url <url> · /mcp add <name> -- <command>",
+        "/mcp add <name> --url <url> [--bearer-token-env <NAME>]",
+        "/mcp add <name> --sse <url> [--bearer-token-env <NAME>]",
+        "/mcp add <name> [--env <NAME>]... [--cwd <path>] -- <command> [args...]",
         "/mcp remove <name> --confirm · /mcp login <name> · /mcp logout <name>",
       ],
       tone: "info",
@@ -690,7 +675,6 @@ export class McpManager {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    this.runner.dispose();
     const connections = [...this.connections.values()];
     this.connections.clear();
     await Promise.all(connections.map((connection) => connection.client.close().catch(() => undefined)));
