@@ -3,6 +3,7 @@ import { Box, Text, useInput } from "ink";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
+  useAuiState,
   StatusBarPrimitive,
 } from "@assistant-ui/react-ink";
 import { Thread } from "./components/thread.js";
@@ -32,6 +33,28 @@ const ConfigurationLoading = () => (
   </Box>
 );
 
+const Conversation = ({ modelName }: { modelName: string }) => {
+  const hasMessages = useAuiState((state) => state.thread.messages.length > 0);
+
+  return (
+    <Box flexDirection="column" padding={1}>
+      {hasMessages ? (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text>
+            <Text bold color="cyan">
+              TIA Code
+            </Text>
+            <Text dimColor> · Pi coding harness</Text>
+          </Text>
+          <StatusBar modelName={modelName} />
+        </Box>
+      ) : null}
+      <Thread modelName={modelName} directory={process.cwd()} />
+      {hasMessages ? <Text dimColor>Ctrl+O to change the Pi provider or model.</Text> : null}
+    </Box>
+  );
+};
+
 const ConfiguredApp = ({
   configuration,
   onConfigure,
@@ -55,19 +78,7 @@ const ConfiguredApp = ({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <Box flexDirection="column" padding={1}>
-        <Box>
-          <Text bold color="cyan">
-            TIA Code
-          </Text>
-          <Text dimColor>{"  "}{process.cwd()}</Text>
-        </Box>
-        <StatusBar modelName={modelName} />
-        <Box marginTop={1}>
-          <Thread />
-        </Box>
-        <Text dimColor>Ctrl+O to change the Pi provider or model.</Text>
-      </Box>
+      <Conversation modelName={modelName} />
     </AssistantRuntimeProvider>
   );
 };
