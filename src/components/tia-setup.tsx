@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import {
+  DEFAULT_TIA_REASONING_EFFORT,
+  isValidTiaBaseUrl,
   TIA_PROVIDER_OPTIONS,
+  TIA_REASONING_EFFORTS,
   saveTiaConfiguration,
   type TiaConfiguration,
   type TiaProviderOption,
 } from "../tia-configuration.js";
 
-type SetupStep = "provider" | "api-key" | "model" | "custom-model";
+type SetupStep = "provider" | "api-key" | "base-url" | "model" | "custom-model" | "reasoning-effort";
 
 type TiaSetupProps = {
   initialConfiguration?: TiaConfiguration;
@@ -32,6 +35,14 @@ const modelSelectionFor = (
   };
 };
 
+const baseUrlOverrideFor = (provider: TiaProviderOption, configuration?: TiaConfiguration): string =>
+  configuration?.providerId === provider.id ? configuration.baseUrl ?? "" : "";
+
+const reasoningEffortIndexFor = (configuration?: TiaConfiguration): number => {
+  const savedEffort = configuration?.reasoningEffort ?? DEFAULT_TIA_REASONING_EFFORT;
+  return Math.max(0, TIA_REASONING_EFFORTS.indexOf(savedEffort));
+};
+
 const maskedKey = (value: string): string => (value ? "••••••••" : "");
 
 export const TiaSetup = ({ initialConfiguration, onComplete, onCancel }: TiaSetupProps) => {
@@ -45,12 +56,19 @@ export const TiaSetup = ({ initialConfiguration, onComplete, onCancel }: TiaSetu
   const [providerIndex, setProviderIndex] = useState(initialProviderIndex);
   const [modelIndex, setModelIndex] = useState(initialModelSelection.modelIndex);
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [baseUrlInput, setBaseUrlInput] = useState(
+    baseUrlOverrideFor(initialProvider, initialConfiguration),
+  );
   const [customModel, setCustomModel] = useState(initialModelSelection.customModel);
+  const [reasoningEffortIndex, setReasoningEffortIndex] = useState(
+    reasoningEffortIndexFor(initialConfiguration),
+  );
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const provider = TIA_PROVIDER_OPTIONS[providerIndex]!;
   const canReuseSavedKey = initialConfiguration?.providerId === provider.id && !!initialConfiguration.apiKey;
   const modelOptions = [...provider.models, customModelOption];
+  const selectedModel = modelOptions[modelIndex];
 
   const goToProvider = () => {
     setError(undefined);
@@ -61,16 +79,61 @@ export const TiaSetup = ({ initialConfiguration, onComplete, onCancel }: TiaSetu
     const nextSelection = modelSelectionFor(provider, initialConfiguration);
     setModelIndex(nextSelection.modelIndex);
     setCustomModel(nextSelection.customModel);
+    setBaseUrlInput(baseUrlOverrideFor(provider, initialConfiguration));
     setApiKeyInput("");
     setError(undefined);
     setStep("api-key");
   };
 
+  const goToBaseUrl = () => {
+    if (!apiKeyInput.trim() && !canReuseSavedKey) {
+      setError("Paste an API key to continue.");
+      return;
+    }
+    setError(undefined);
+    setStep("base-url");
+  };
+
+  const goToModel = () => {
+    const baseUrl = baseUrlInput.trim();
+    if (baseUrl && !isValidTiaBaseUrl(baseUrl)) {
+      setError("Enter an http(s) base URL.");
+      return;
+    }
+    if (provider.id === "custom" && !baseUrl) {
+      setError("A custom provider requires a base URL.");
+      return;
+    }
+    setError(undefined);
+    setStep("model");
+  };
+
+  const goToReasoningEffort = (modelId: string) => {
+    if (!modelId.trim()) {
+      setError("Enter a model ID to continue.");
+      setStep("custom-model");
+      return;
+    }
+    setError(undefined);
+    setStep("reasoning-effort");
+  };
+
   const save = (modelId: string) => {
     const apiKey = apiKeyInput.trim() || (canReuseSavedKey ? initialConfiguration?.apiKey : "");
+    const baseUrl = baseUrlInput.trim();
     if (!apiKey) {
       setError("Paste an API key to continue.");
       setStep("api-key");
+      return;
+    }
+    if (baseUrl && !isValidTiaBaseUrl(baseUrl)) {
+      setError("Enter an http(s) base URL.");
+      setStep("base-url");
+      return;
+    }
+    if (provider.id === "custom" && !baseUrl) {
+      setError("A custom provider requires a base URL.");
+      setStep("base-url");
       return;
     }
     if (!modelId.trim()) {
@@ -84,6 +147,8 @@ export const TiaSetup = ({ initialConfiguration, onComplete, onCancel }: TiaSetu
       providerId: provider.id,
       modelId: modelId.trim(),
       apiKey,
+      ...(baseUrl ? { baseUrl } : {}),
+      reasoningEffort: TIA_REASONING_EFFORTS[reasoningEffortIndex]!,
     };
     setError(undefined);
     setSaving(true);
@@ -115,12 +180,7 @@ export const TiaSetup = ({ initialConfiguration, onComplete, onCancel }: TiaSetu
       if (key.escape) {
         goToProvider();
       } else if (key.return) {
-        if (apiKeyInput.trim() || canReuseSavedKey) {
-          setError(undefined);
-          setStep("model");
-        } else {
-          setError("Paste an API key to continue.");
-        }
+        goToBaseUrl();
       } else if (key.backspace || key.delete) {
         setApiKeyInput((value) => value.slice(0, -1));
       } else if (key.ctrl && input.toLowerCase() === "u") {
@@ -131,41 +191,76 @@ export const TiaSetup = ({ initialConfiguration, onComplete, onCancel }: TiaSetu
       return;
     }
 
+    if (step === "base-url") {
+      if (key.escape) {
+        setError(undefined);
+        setStep("api-key");
+      } else if (key.return) {
+        goToModel();
+      } else if (key.backspace || key.delete) {
+        setBaseUrlInput((value) => value.slice(0, -1));
+      } else if (key.ctrl && input.toLowerCase() === "u") {
+        setBaseUrlInput("");
+      } else if (!key.ctrl && !key.meta && input) {
+        setBaseUrlInput((value) => `${value}${input}`);
+      }
+      return;
+    }
+
     if (step === "model") {
       if (key.upArrow) {
         setModelIndex((current) => (current === 0 ? modelOptions.length - 1 : current - 1));
       } else if (key.downArrow) {
         setModelIndex((current) => (current + 1) % modelOptions.length);
       } else if (key.return) {
-        const selectedModel = modelOptions[modelIndex];
         if (selectedModel === customModelOption) {
           setError(undefined);
           setStep("custom-model");
         } else if (selectedModel) {
-          save(selectedModel);
+          goToReasoningEffort(selectedModel);
         }
       } else if (key.escape) {
         setError(undefined);
-        setStep("api-key");
+        setStep("base-url");
       }
       return;
     }
 
-    if (key.escape) {
-      setError(undefined);
-      setStep("model");
+    if (step === "custom-model") {
+      if (key.escape) {
+        setError(undefined);
+        setStep("model");
+      } else if (key.return) {
+        goToReasoningEffort(customModel);
+      } else if (key.backspace || key.delete) {
+        setCustomModel((value) => value.slice(0, -1));
+      } else if (key.ctrl && input.toLowerCase() === "u") {
+        setCustomModel("");
+      } else if (!key.ctrl && !key.meta && input) {
+        setCustomModel((value) => `${value}${input}`);
+      }
+      return;
+    }
+
+    if (key.upArrow) {
+      setReasoningEffortIndex((current) =>
+        current === 0 ? TIA_REASONING_EFFORTS.length - 1 : current - 1,
+      );
+    } else if (key.downArrow) {
+      setReasoningEffortIndex((current) => (current + 1) % TIA_REASONING_EFFORTS.length);
     } else if (key.return) {
-      save(customModel);
-    } else if (key.backspace || key.delete) {
-      setCustomModel((value) => value.slice(0, -1));
-    } else if (key.ctrl && input.toLowerCase() === "u") {
-      setCustomModel("");
-    } else if (!key.ctrl && !key.meta && input) {
-      setCustomModel((value) => `${value}${input}`);
+      save(selectedModel === customModelOption ? customModel : selectedModel ?? "");
+    } else if (key.escape) {
+      setError(undefined);
+      setStep(selectedModel === customModelOption ? "custom-model" : "model");
     }
   });
 
-  const heading = initialConfiguration ? "Update TIA model" : "Set up TIA";
+  const heading = initialConfiguration ? "Update TIA configuration" : "Set up TIA";
+  const baseUrlPlaceholder =
+    provider.id === "custom"
+      ? "https://your-provider.example/v1"
+      : `Leave blank to use ${provider.baseUrl}`;
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -185,7 +280,7 @@ export const TiaSetup = ({ initialConfiguration, onComplete, onCancel }: TiaSetu
 
       {!saving && step === "provider" ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color="cyan">1/3 · Choose a provider</Text>
+          <Text color="cyan">1/5 · Choose a provider</Text>
           {TIA_PROVIDER_OPTIONS.map((option, index) => (
             <Text key={option.id} color={index === providerIndex ? "cyan" : undefined}>
               {selectedMarker(index === providerIndex)} {option.label}
@@ -197,7 +292,7 @@ export const TiaSetup = ({ initialConfiguration, onComplete, onCancel }: TiaSetu
 
       {!saving && step === "api-key" ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color="cyan">2/3 · {provider.label} API key</Text>
+          <Text color="cyan">2/5 · {provider.label} API key</Text>
           <Box borderStyle="round" borderColor={error ? "red" : "gray"} paddingX={1}>
             <Text color="gray">{"> "}</Text>
             <Text>{maskedKey(apiKeyInput)}</Text>
@@ -211,27 +306,55 @@ export const TiaSetup = ({ initialConfiguration, onComplete, onCancel }: TiaSetu
         </Box>
       ) : null}
 
+      {!saving && step === "base-url" ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color="cyan">3/5 · {provider.label} base URL</Text>
+          <Box borderStyle="round" borderColor={error ? "red" : "gray"} paddingX={1}>
+            <Text color="gray">{"> "}</Text>
+            <Text>{baseUrlInput}</Text>
+            {!baseUrlInput ? <Text dimColor>{baseUrlPlaceholder}</Text> : null}
+          </Box>
+          <Text dimColor>
+            {provider.id === "custom"
+              ? "Required for custom providers. Enter continues · Esc goes back."
+              : "Optional provider endpoint override. Enter continues · Esc goes back."}
+          </Text>
+        </Box>
+      ) : null}
+
       {!saving && step === "model" ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color="cyan">3/3 · Choose a model for {provider.label}</Text>
+          <Text color="cyan">4/5 · Choose a model for {provider.label}</Text>
           {modelOptions.map((model, index) => (
             <Text key={model} color={index === modelIndex ? "cyan" : undefined}>
               {selectedMarker(index === modelIndex)} {model}
             </Text>
           ))}
-          <Text dimColor>↑/↓ choose · Enter save · Esc goes back</Text>
+          <Text dimColor>↑/↓ choose · Enter continue · Esc goes back</Text>
         </Box>
       ) : null}
 
       {!saving && step === "custom-model" ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color="cyan">3/3 · Custom {provider.label} model ID</Text>
+          <Text color="cyan">4/5 · Custom {provider.label} model ID</Text>
           <Box borderStyle="round" borderColor={error ? "red" : "gray"} paddingX={1}>
             <Text color="gray">{"> "}</Text>
             <Text>{customModel}</Text>
             {!customModel ? <Text dimColor>e.g. my-provider-model</Text> : null}
           </Box>
-          <Text dimColor>Enter save · Esc goes back</Text>
+          <Text dimColor>Enter continues · Esc goes back</Text>
+        </Box>
+      ) : null}
+
+      {!saving && step === "reasoning-effort" ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color="cyan">5/5 · Choose a reasoning effort</Text>
+          {TIA_REASONING_EFFORTS.map((effort, index) => (
+            <Text key={effort} color={index === reasoningEffortIndex ? "cyan" : undefined}>
+              {selectedMarker(index === reasoningEffortIndex)} {effort}
+            </Text>
+          ))}
+          <Text dimColor>↑/↓ choose · Enter save · Esc goes back</Text>
         </Box>
       ) : null}
 

@@ -1,5 +1,9 @@
 import { createTiaAdapter } from "./tia-adapter.js";
-import { loadTiaConfiguration } from "./tia-configuration.js";
+import {
+  loadTiaConfiguration,
+  resolveTiaConfiguration,
+  type TiaConfigurationOverrides,
+} from "./tia-configuration.js";
 
 /**
  * Runs one prompt without Ink. Only assistant text deltas are sent to the
@@ -8,11 +12,12 @@ import { loadTiaConfiguration } from "./tia-configuration.js";
 export const runTiaCodePrompt = async (
   prompt: string,
   onTextDelta: (delta: string) => void,
+  overrides: TiaConfigurationOverrides = {},
 ): Promise<void> => {
-  const configuration = await loadTiaConfiguration();
+  const configuration = resolveTiaConfiguration(await loadTiaConfiguration(), overrides);
   if (!configuration) {
     throw new Error(
-      "TIA Code has not been configured. Run `tia-code` in an interactive terminal first.",
+      "TIA Code needs a provider, API key, and model. Run `tia-code setup` or pass --provider, --api-key, and --model-id.",
     );
   }
 

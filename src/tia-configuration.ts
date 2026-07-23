@@ -12,12 +12,24 @@ const LEGACY_HARNESS_AGENT_DIRECTORY = "pi";
 
 type TiaProviderApi = "anthropic-messages" | "openai-completions" | "openai-responses";
 
-export type TiaProviderId = "anthropic" | "openai" | "deepseek" | "kimi" | "opencode-go";
+export type TiaProviderId =
+  | "anthropic"
+  | "openai"
+  | "deepseek"
+  | "kimi"
+  | "opencode-go"
+  | "custom";
+
+export const TIA_REASONING_EFFORTS = ["off", "minimal", "low", "medium", "high"] as const;
+
+export type TiaReasoningEffort = (typeof TIA_REASONING_EFFORTS)[number];
+
+export const DEFAULT_TIA_REASONING_EFFORT: TiaReasoningEffort = "medium";
 
 export type TiaProviderOption = {
   id: TiaProviderId;
   label: string;
-  baseUrl: string;
+  baseUrl?: string;
   api: TiaProviderApi;
   models: readonly string[];
 };
@@ -27,7 +39,13 @@ export type TiaConfiguration = {
   providerId: TiaProviderId;
   modelId: string;
   apiKey: string;
+  baseUrl?: string;
+  reasoningEffort: TiaReasoningEffort;
 };
+
+export type TiaConfigurationOverrides = Partial<
+  Pick<TiaConfiguration, "providerId" | "modelId" | "apiKey" | "baseUrl" | "reasoningEffort">
+>;
 
 export const TIA_PROVIDER_OPTIONS: readonly TiaProviderOption[] = [
   {
@@ -65,10 +83,19 @@ export const TIA_PROVIDER_OPTIONS: readonly TiaProviderOption[] = [
     api: "openai-completions",
     models: ["mimo-v2.5", "deepseek-v4-flash", "deepseek-v4-pro"],
   },
+  {
+    id: "custom",
+    label: "Custom (OpenAI-compatible)",
+    api: "openai-completions",
+    models: [],
+  },
 ];
 
-const isTiaProviderId = (value: unknown): value is TiaProviderId =>
+export const isTiaProviderId = (value: unknown): value is TiaProviderId =>
   typeof value === "string" && TIA_PROVIDER_OPTIONS.some((provider) => provider.id === value);
+
+export const isTiaReasoningEffort = (value: unknown): value is TiaReasoningEffort =>
+  typeof value === "string" && TIA_REASONING_EFFORTS.includes(value as TiaReasoningEffort);
 
 export const getTiaProviderOption = (id: TiaProviderId): TiaProviderOption => {
   const provider = TIA_PROVIDER_OPTIONS.find((candidate) => candidate.id === id);
@@ -113,15 +140,63 @@ export const ensureTiaSessionDirectory = async (): Promise<string> => {
   return directory;
 };
 
+export const isValidTiaBaseUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 const normalizeTiaConfiguration = (input: unknown): TiaConfiguration | null => {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const value = input as Record<string, unknown>;
   const apiKey = typeof value.apiKey === "string" ? value.apiKey.trim() : "";
   const modelId = typeof value.modelId === "string" ? value.modelId.trim() : "";
-  if (value.version !== CONFIG_VERSION || !isTiaProviderId(value.providerId) || !apiKey || !modelId) {
+  const baseUrl = typeof value.baseUrl === "string" ? value.baseUrl.trim() : "";
+  const reasoningEffort = isTiaReasoningEffort(value.reasoningEffort)
+    ? value.reasoningEffort
+    : DEFAULT_TIA_REASONING_EFFORT;
+  if (
+    value.version !== CONFIG_VERSION ||
+    !isTiaProviderId(value.providerId) ||
+    !apiKey ||
+    !modelId ||
+    (baseUrl && !isValidTiaBaseUrl(baseUrl)) ||
+    (value.providerId === "custom" && !baseUrl)
+  ) {
     return null;
   }
-  return { version: CONFIG_VERSION, providerId: value.providerId, modelId, apiKey };
+  return {
+    version: CONFIG_VERSION,
+    providerId: value.providerId,
+    modelId,
+    apiKey,
+    ...(baseUrl ? { baseUrl } : {}),
+    reasoningEffort,
+  };
+};
+
+export const resolveTiaConfiguration = (
+  saved: TiaConfiguration | null,
+  overrides: TiaConfigurationOverrides = {},
+): TiaConfiguration | null => {
+  const providerId = overrides.providerId ?? saved?.providerId;
+  const apiKey = overrides.apiKey ?? saved?.apiKey;
+  const modelId = overrides.modelId ?? saved?.modelId;
+  if (!providerId || !apiKey || !modelId) return null;
+
+  const providerChanged = providerId !== saved?.providerId;
+  const baseUrl = overrides.baseUrl ?? (providerChanged ? undefined : saved?.baseUrl);
+  return normalizeTiaConfiguration({
+    version: CONFIG_VERSION,
+    providerId,
+    apiKey,
+    modelId,
+    baseUrl,
+    reasoningEffort: overrides.reasoningEffort ?? saved?.reasoningEffort,
+  });
 };
 
 export const loadTiaConfiguration = async (
@@ -158,6 +233,8 @@ export const createTiaModelRuntime = async (configuration: TiaConfiguration) => 
   if (!normalized) throw new Error("TIA has not been configured yet.");
 
   const provider = getTiaProviderOption(normalized.providerId);
+  const baseUrl = normalized.baseUrl ?? provider.baseUrl;
+  if (!baseUrl) throw new Error("A custom TIA provider requires a base URL.");
   const agentDir = await ensureTiaAgentDirectory();
 
   const modelRuntime = await ModelRuntime.create({
@@ -168,7 +245,7 @@ export const createTiaModelRuntime = async (configuration: TiaConfiguration) => 
   const providerId = `tia-code-${provider.id}`;
   modelRuntime.registerProvider(providerId, {
     name: provider.label,
-    baseUrl: provider.baseUrl,
+    baseUrl,
     api: provider.api,
     apiKey: RUNTIME_KEY_REFERENCE,
     authHeader: true,

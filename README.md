@@ -45,6 +45,49 @@ Now just describe what you need.
 Find the source of the slow startup and propose the smallest safe fix.
 ```
 
+## Set or change your model
+
+Run setup whenever you want to choose a provider, API key, base URL, model, and reasoning effort again. It always opens the setup flow, including when TIA Code is already configured.
+
+```sh
+tia-code setup
+```
+
+For scripts, CI, or other non-interactive environments, provide a provider, API key, and model ID to save the configuration without opening the terminal UI. `--base-url` optionally overrides a built-in provider endpoint. Custom model IDs are supported.
+
+```sh
+tia-code setup \
+  --provider opencode-go \
+  --api-key "$OPENCODE_API_KEY" \
+  --model-id mimo-v2.5 \
+  --reasoning-effort high
+```
+
+Use `custom` for an OpenAI-compatible endpoint. A base URL is required for custom providers.
+
+```sh
+tia-code setup \
+  --provider custom \
+  --base-url https://llm.example.com/v1 \
+  --api-key "$CUSTOM_LLM_API_KEY" \
+  --model-id custom-model \
+  --reasoning-effort medium
+```
+
+Both `setup` and `run` also read these environment variables, which is useful in CI/CD. Explicit command-line options take precedence over environment values.
+
+```sh
+export TIA_CODE_PROVIDER=opencode-go
+export TIA_CODE_API_KEY="$OPENCODE_API_KEY"
+export TIA_CODE_MODEL_ID=mimo-v2.5
+export TIA_CODE_BASE_URL=https://opencode.ai/zen/go/v1 # optional for built-in providers
+export TIA_CODE_REASONING_EFFORT=high
+
+tia-code setup
+```
+
+Available provider IDs are `anthropic`, `openai`, `deepseek`, `kimi`, `opencode-go`, and `custom`. Valid reasoning efforts are `off`, `minimal`, `low`, `medium`, and `high`. The API key is never printed by TIA Code. Prefer an environment variable, as command-line arguments can be retained in shell history or visible to other local processes.
+
 ## Work interactively
 
 Use the interactive app for an ongoing conversation about a project. TIA Code keeps the workspace context, can use project skills and connected MCP tools, and shows its progress as it works.
@@ -86,8 +129,21 @@ On startup, TIA Code reconnects saved MCP servers whose authentication is ready 
 Use `run` when you need an answer without opening the terminal UI.
 
 ```sh
-tia-code run "Summarize the changes in this repository."
+tia-code run "Summarize the changes in this repository." --reasoning-effort high
 ```
+
+The connection options on `run` are temporary: they override the saved configuration for only that invocation. This lets a script run against a separate provider without changing local setup.
+
+```sh
+tia-code run "Summarize the changes in this repository." \
+  --provider custom \
+  --base-url https://llm.example.com/v1 \
+  --api-key "$CUSTOM_LLM_API_KEY" \
+  --model-id custom-model \
+  --reasoning-effort high
+```
+
+The same `TIA_CODE_PROVIDER`, `TIA_CODE_API_KEY`, `TIA_CODE_MODEL_ID`, `TIA_CODE_BASE_URL`, and `TIA_CODE_REASONING_EFFORT` variables work with `run`; values not overridden use the saved configuration when one is available.
 
 Assistant text is written to standard output. Diagnostics and errors go to standard error, and a failed run exits non-zero.
 

@@ -382,6 +382,7 @@ export const createTiaAdapter = (
           agentDir,
           modelRuntime,
           model,
+          thinkingLevel: configuration.reasoningEffort,
           resourceLoader,
           settingsManager,
           sessionManager,

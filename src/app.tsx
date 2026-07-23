@@ -247,9 +247,15 @@ const ConfiguredApp = ({
   );
 };
 
-export const App = ({ resumeSessionId }: { resumeSessionId?: string }) => {
+export const App = ({
+  resumeSessionId,
+  startInSetup = false,
+}: {
+  resumeSessionId?: string;
+  startInSetup?: boolean;
+}) => {
   const [configuration, setConfiguration] = useState<TiaConfiguration | null | undefined>(undefined);
-  const [showSetup, setShowSetup] = useState(false);
+  const [showSetup, setShowSetup] = useState(startInSetup);
 
   useEffect(() => {
     let mounted = true;
